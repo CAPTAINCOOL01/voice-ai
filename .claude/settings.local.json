@@ -25,7 +25,11 @@
       "Read(//c/Users/ramay/AppData/Local/Programs/**)",
       "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" compile --fqbn esp32:esp32:esp32 .)",
       "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" board list)",
-      "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" upload --fqbn esp32:esp32:esp32 --port COM3 .)"
+      "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" upload --fqbn esp32:esp32:esp32 --port COM3 .)",
+      "Bash(node -e \"require\\('./server.js'\\)\")",
+      "Bash(curl -s -X POST http://localhost:5000/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"changeme123\"}')",
+      "Bash(node -e ':*)",
+      "Bash(taskkill //F //IM node.exe)"
     ]
   }
 }

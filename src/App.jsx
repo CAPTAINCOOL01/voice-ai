@@ -912,7 +912,6 @@ function Skeleton() {
 // ── App ────────────────────────────────────────────────
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
-  if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
   const [recording, setRecording]     = useState(false);
   const [audioBlob, setAudioBlob]     = useState(null);
   const [audioURL,  setAudioURL]      = useState(null);
@@ -946,6 +945,8 @@ export default function App() {
   }, []);
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
+
+  if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
 
   const startRecording = async () => {
     try {
