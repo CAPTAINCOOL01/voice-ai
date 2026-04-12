@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx kill-port:*)",
+      "Bash(node server.js)",
+      "Bash(ipconfig)",
+      "Bash(mode)",
+      "Bash(pio --version)",
+      "Bash(arduino-cli version:*)",
+      "Bash(powershell -command \"Get-PnpDevice -Class Ports | Select-Object FriendlyName, Status | Format-List\")",
+      "Bash(powershell -command \"Get-Command arduino-ide, arduino, 'arduino_debug' -ErrorAction SilentlyContinue | Select-Object Name, Source 2>/dev/null; ls 'C:\\\\Program Files\\\\Arduino IDE\\\\' 2>/dev/null; ls 'C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\' 2>/dev/null\")",
+      "Bash(powershell -command \"Test-Path 'C:\\\\Program Files\\\\Arduino IDE'; Test-Path 'C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE'; Get-Command arduino-cli -ErrorAction SilentlyContinue\")",
+      "Bash(powershell -command \"Get-ChildItem 'C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE' -Recurse -Filter 'arduino-cli.exe' | Select-Object FullName\")",
+      "Bash(powershell -command \"& 'C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe' board list\")",
+      "Bash(powershell -command \"& 'C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe' lib list 2>&1 | Select-String -Pattern 'Async|async'\")",
+      "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" compile --fqbn esp32:esp32:esp32dev \"C:\\\\Users\\\\ramay\\\\Desktop\\\\voice-ai\\\\voice-ai-architecture\\\\firmware\\\\voice_ai_hardware\")",
+      "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" board listall esp32)",
+      "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" compile --fqbn esp32:esp32:esp32 \"C:\\\\Users\\\\ramay\\\\Desktop\\\\voice-ai\\\\voice-ai-architecture\\\\firmware\\\\voice_ai_hardware\")",
+      "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" upload --fqbn esp32:esp32:esp32 --port COM3 \"C:\\\\Users\\\\ramay\\\\Desktop\\\\voice-ai\\\\voice-ai-architecture\\\\firmware\\\\voice_ai_hardware\")",
+      "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" monitor -p COM3 --config baudrate=115200)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

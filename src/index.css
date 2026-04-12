@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #09090b;
+  color: #fff;
+  margin: 0;
+}
+
+.font-display {
+  font-family: 'Sora', sans-serif;
+}
+
+/* Wave bars */
+@keyframes waveActive {
+  0%, 100% { transform: scaleY(0.2); }
+  50%       { transform: scaleY(1); }
+}
+@keyframes waveIdle {
+  0%, 100% { transform: scaleY(0.15); }
+  50%       { transform: scaleY(0.35); }
+}
+.wave-active {
+  animation: waveActive 0.75s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.wave-idle {
+  animation: waveIdle 2s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+/* Pulse rings on the record button */
+@keyframes pulseRing {
+  0%   { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.pulse-ring {
+  animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.pulse-ring-delay {
+  animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite 0.7s;
+}
+
+/* Breathe dot */
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.1); }
+}
+.breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Fade up on mount */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fadeUp 0.4s ease-out forwards;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
+
+/* Tag colour variants */
+.tag { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; }
+.tag-0 { background: rgba(59,130,246,.15);  color: #60a5fa; border: 1px solid rgba(59,130,246,.25); }
+.tag-1 { background: rgba(168,85,247,.15);  color: #c084fc; border: 1px solid rgba(168,85,247,.25); }
+.tag-2 { background: rgba(34,197,94,.15);   color: #4ade80; border: 1px solid rgba(34,197,94,.25); }
+.tag-3 { background: rgba(20,184,166,.15);  color: #2dd4bf; border: 1px solid rgba(20,184,166,.25); }
+.tag-4 { background: rgba(245,158,11,.15);  color: #fbbf24; border: 1px solid rgba(245,158,11,.25); }
+.tag-5 { background: rgba(244,114,182,.15); color: #f472b6; border: 1px solid rgba(244,114,182,.25); }
