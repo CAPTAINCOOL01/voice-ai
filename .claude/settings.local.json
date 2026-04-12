@@ -18,7 +18,14 @@
       "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" compile --fqbn esp32:esp32:esp32 \"C:\\\\Users\\\\ramay\\\\Desktop\\\\voice-ai\\\\voice-ai-architecture\\\\firmware\\\\voice_ai_hardware\")",
       "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" upload --fqbn esp32:esp32:esp32 --port COM3 \"C:\\\\Users\\\\ramay\\\\Desktop\\\\voice-ai\\\\voice-ai-architecture\\\\firmware\\\\voice_ai_hardware\")",
       "Bash(\"C:\\\\Users\\\\ramay\\\\AppData\\\\Local\\\\Programs\\\\Arduino IDE\\\\resources\\\\app\\\\lib\\\\backend\\\\resources\\\\arduino-cli.exe\" monitor -p COM3 --config baudrate=115200)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(where arduino-cli:*)",
+      "Read(//c/Users/ramay/AppData/Local/Arduino15/**)",
+      "Read(//c/Users/ramay/AppData/Local/Programs/**)",
+      "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" compile --fqbn esp32:esp32:esp32 .)",
+      "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" board list)",
+      "Bash(\"/c/Users/ramay/AppData/Local/Programs/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe\" upload --fqbn esp32:esp32:esp32 --port COM3 .)"
     ]
   }
 }

@@ -14,10 +14,11 @@ const authFetch = (url, opts = {}) =>
 
 // ── Login Page ────────────────────────────────────────────
 function LoginPage({ onLogin }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState("");
+  const [username,  setUsername]  = useState("");
+  const [password,  setPassword]  = useState("");
+  const [showPass,  setShowPass]  = useState(false);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState("");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -66,11 +67,29 @@ function LoginPage({ onLogin }) {
             </div>
             <div>
               <label style={{ fontSize:12, color:"#a1a1aa", display:"block", marginBottom:6 }}>Password</label>
-              <input type="password" value={password} onChange={e=>setPassword(e.target.value)} required
-                style={{ width:"100%", background:"#09090b", border:"1px solid #27272a", borderRadius:10,
-                  padding:"11px 14px", fontSize:14, color:"#fff", outline:"none" }}
-                onFocus={e=>e.target.style.borderColor="#f59e0b"}
-                onBlur={e=>e.target.style.borderColor="#27272a"}/>
+              <div style={{ position:"relative" }}>
+                <input type={showPass ? "text" : "password"} value={password} onChange={e=>setPassword(e.target.value)} required
+                  style={{ width:"100%", background:"#09090b", border:"1px solid #27272a", borderRadius:10,
+                    padding:"11px 42px 11px 14px", fontSize:14, color:"#fff", outline:"none" }}
+                  onFocus={e=>e.target.style.borderColor="#f59e0b"}
+                  onBlur={e=>e.target.style.borderColor="#27272a"}/>
+                <button type="button" onClick={()=>setShowPass(v=>!v)}
+                  style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)",
+                    background:"none", border:"none", cursor:"pointer", padding:0, color:"#a1a1aa", display:"flex" }}>
+                  {showPass ? (
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {error && (

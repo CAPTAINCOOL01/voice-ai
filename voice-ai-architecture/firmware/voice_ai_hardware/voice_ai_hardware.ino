@@ -2,7 +2,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include <WiFiClient.h>
 #include <ESPAsyncWebServer.h>
 #include "driver/i2s.h"
 
@@ -11,10 +11,8 @@
    ───────────────────────────────────────── */
 #define WIFI_SSID     "TPF_2.4G"
 #define WIFI_PASS     "7017138349"
-// After deploying to Railway, paste your app URL here (no https://, no trailing slash)
-// e.g. "voice-ai-production.up.railway.app"
-#define BACKEND_HOST  "your-app.up.railway.app"
-#define BACKEND_PORT  443
+#define BACKEND_HOST  "192.168.1.11"
+#define BACKEND_PORT  5000
 #define BACKEND_PATH  "/save"
 // Paste the ESP32_API_KEY value you set in Railway environment variables
 #define ESP32_API_KEY "replace-with-another-random-key"
@@ -200,8 +198,7 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   uint32_t totalLen = filePart.length() + f.size() + durPart.length() + endPart.length();
   Serial.printf("[HTTP] ✓ Payload size: %u bytes\n", totalLen);
 
-  WiFiClientSecure client;
-  client.setInsecure(); // Skip certificate validation (fine for internal device)
+  WiFiClient client;
   Serial.printf("[HTTP] Connecting to %s:%d ...\n", BACKEND_HOST, BACKEND_PORT);
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
     Serial.println("[HTTP] ✗ FAIL — Cannot reach backend — check IP and port");
@@ -211,7 +208,7 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   Serial.println("[HTTP] ✓ TCP connection established");
 
   client.printf("POST %s HTTP/1.0\r\n",                               BACKEND_PATH);
-  client.printf("Host: %s\r\n",                                       BACKEND_HOST);
+  client.printf("Host: %s:%d\r\n",                                    BACKEND_HOST, BACKEND_PORT);
   client.printf("X-Api-Key: %s\r\n",                                  ESP32_API_KEY);
   client.printf("Content-Type: multipart/form-data; boundary=%s\r\n", boundary.c_str());
   client.printf("Content-Length: %u\r\n",                             totalLen);
