@@ -29,7 +29,8 @@
       "Bash(node -e \"require\\('./server.js'\\)\")",
       "Bash(curl -s -X POST http://localhost:5000/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"changeme123\"}')",
       "Bash(node -e ':*)",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(npm run:*)"
     ]
   }
 }
