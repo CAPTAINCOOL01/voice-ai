@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat /c/Users/ramay/Desktop/voice-ai/.env*)",
+      "Bash(ls /c/Users/ramay/Desktop/voice-ai/.env*)"
+    ]
+  }
+}
