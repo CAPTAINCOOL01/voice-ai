@@ -287,7 +287,7 @@ app.post("/chat", auth, async (req, res) => {
 
 // ── Fallback → React app ──────────────────────────────────
 if (fs.existsSync(DIST)) {
-  app.get("*", (_, res) => res.sendFile(path.join(DIST, "index.html")));
+  app.use((_, res) => res.sendFile(path.join(DIST, "index.html")));
 }
 
 // ── Start ─────────────────────────────────────────────────
