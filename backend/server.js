@@ -35,8 +35,14 @@ const s3 = new S3Client({
 
 // ── Express ───────────────────────────────────────────────
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_URL || "*", credentials: true }));
+app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
+
+// ── Serve React frontend (built files) ────────────────────
+const DIST = path.join(__dirname, "..", "dist");
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST));
+}
 
 // ── MongoDB ───────────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI)
@@ -278,6 +284,11 @@ app.post("/chat", auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Fallback → React app ──────────────────────────────────
+if (fs.existsSync(DIST)) {
+  app.get("*", (_, res) => res.sendFile(path.join(DIST, "index.html")));
+}
 
 // ── Start ─────────────────────────────────────────────────
 app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
