@@ -2,7 +2,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <ESPAsyncWebServer.h>
 #include "driver/i2s.h"
 
@@ -11,8 +11,8 @@
    ───────────────────────────────────────── */
 #define WIFI_SSID     "TPF_2.4G"
 #define WIFI_PASS     "7017138349"
-#define BACKEND_HOST  "192.168.1.11"
-#define BACKEND_PORT  5000
+#define BACKEND_HOST  "voice-ai-da3b.onrender.com"
+#define BACKEND_PORT  443
 #define BACKEND_PATH  "/save"
 // Paste the ESP32_API_KEY value you set in Railway environment variables
 #define ESP32_API_KEY "replace-with-another-random-key"
@@ -198,7 +198,8 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   uint32_t totalLen = filePart.length() + f.size() + durPart.length() + endPart.length();
   Serial.printf("[HTTP] ✓ Payload size: %u bytes\n", totalLen);
 
-  WiFiClient client;
+  WiFiClientSecure client;
+  client.setInsecure();
   Serial.printf("[HTTP] Connecting to %s:%d ...\n", BACKEND_HOST, BACKEND_PORT);
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
     Serial.println("[HTTP] ✗ FAIL — Cannot reach backend — check IP and port");
