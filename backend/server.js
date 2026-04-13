@@ -232,6 +232,23 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
   }
 });
 
+// ── GET /recordings/:id/audio — proxy audio from R2 ──────
+app.get("/recordings/:id/audio", auth, async (req, res) => {
+  try {
+    const recording = await Recording.findById(req.params.id);
+    if (!recording) return res.status(404).json({ error: "Not found" });
+    const { Body, ContentType, ContentLength } = await s3.send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: recording.filename })
+    );
+    res.setHeader("Content-Type", ContentType || getContentType(recording.filename));
+    if (ContentLength) res.setHeader("Content-Length", ContentLength);
+    res.setHeader("Accept-Ranges", "bytes");
+    Body.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /recordings ───────────────────────────────────────
 app.get("/recordings", auth, async (req, res) => {
   try {

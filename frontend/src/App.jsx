@@ -445,7 +445,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
 
   const downloadAudio = () => {
     const a = document.createElement("a");
-    a.href = rec.fileUrl || `${API}/uploads/${rec.filename}`; a.download = `${rec.title||"recording"}.webm`; a.click();
+    a.href = `${API}/recordings/${rec._id}/audio`; a.download = `${rec.title||"recording"}.webm`; a.click();
     showToast("Audio download started!");
   };
 
@@ -540,7 +540,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
           {/* ── LISTEN ── */}
           {tab==="listen" && (
             <div style={{ animation:"fadeUp 0.25s ease" }}>
-              <AudioPlayer src={rec.fileUrl || `${API}/uploads/${rec.filename}`} large />
+              <AudioPlayer src={`${API}/recordings/${rec._id}/audio`} large />
               <p style={{ textAlign:"center", fontSize:11, color:"#3f3f46", marginTop:10 }}>
                 Click the progress bar to jump · use speed button to go faster
               </p>
