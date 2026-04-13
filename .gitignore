@@ -1,3 +1,15 @@
-.env
+# Dependencies
 node_modules/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# Build output
+dist/
+frontend/dist/
+
+# Misc
 *.txt
+.claude/

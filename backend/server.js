@@ -39,7 +39,7 @@ app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 
 // ── Serve React frontend (built files) ────────────────────
-const DIST = path.join(__dirname, "..", "dist");
+const DIST = path.join(__dirname, "..", "frontend", "dist");
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST));
 }

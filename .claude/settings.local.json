@@ -30,7 +30,16 @@
       "Bash(curl -s -X POST http://localhost:5000/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"changeme123\"}')",
       "Bash(node -e ':*)",
       "Bash(taskkill //F //IM node.exe)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(mkdir -p frontend)",
+      "Bash(mv src:*)",
+      "Bash(mv public:*)",
+      "Bash(mv index.html frontend/)",
+      "Bash(mv package.json frontend/)",
+      "Bash(mv package-lock.json frontend/)",
+      "Bash(mv .env frontend/)",
+      "Bash(mv .env.production frontend/)",
+      "Read(//tmp/**)"
     ]
   }
 }
