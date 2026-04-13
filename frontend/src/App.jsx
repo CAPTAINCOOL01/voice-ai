@@ -173,7 +173,18 @@ function AudioPlayer({ src, large }) {
   const [progress, setProg]   = useState(0);
   const [dur, setDur]         = useState(0);
   const [speed, setSpeed]     = useState(1);
+  const [blobUrl, setBlobUrl] = useState(null);
   const ref = useRef(null);
+
+  useEffect(() => {
+    if (!src) return;
+    let url;
+    authFetch(src)
+      .then(r => r.blob())
+      .then(blob => { url = URL.createObjectURL(blob); setBlobUrl(url); })
+      .catch(() => setBlobUrl(src)); // fallback to direct src
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [src]);
 
   useEffect(() => {
     const el = ref.current; if (!el) return;
@@ -195,7 +206,7 @@ function AudioPlayer({ src, large }) {
 
   return (
     <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:16, padding: large ? 20 : 14 }}>
-      <audio ref={ref} src={src} preload="metadata" />
+      <audio ref={ref} src={blobUrl || ""} preload="metadata" />
       {large && (
         <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:48, justifyContent:"center", marginBottom:16 }}>
           {Array.from({length:36}).map((_,i)=>(
