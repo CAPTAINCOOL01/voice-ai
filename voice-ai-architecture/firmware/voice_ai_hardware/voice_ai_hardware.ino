@@ -446,59 +446,43 @@ void loop() {
     sendHeartbeat();
   }
 
-  // ── Button ──
+  // ── Button (hold to record, release to upload) ──
   static bool lastBtn = HIGH;
   bool btn = digitalRead(PIN_BUTTON);
 
+  // ── PRESS DOWN → start recording ──
   if (lastBtn == HIGH && btn == LOW) {
-    Serial.println("[BTN]  >> Edge detected — falling (HIGH → LOW)");
-    delay(50);
-    btn = digitalRead(PIN_BUTTON);
-    if (btn == HIGH) {
-      Serial.println("[BTN]  ✗ Bounce — ignored");
-      lastBtn = HIGH;
-      goto end_loop;
-    }
-    Serial.println("[BTN]  ✓ Press confirmed after debounce");
-
-    if (!recording) {
-      // ── START RECORDING ──
-      Serial.println("[REC]  >> Starting recording...");
+    delay(30);
+    if (digitalRead(PIN_BUTTON) == LOW) {
+      Serial.println("[BTN]  ✓ Pressed — starting recording");
       sprintf(currentFile, "/REC%03u.wav", fileIndex++);
-      Serial.printf("[REC]  Opening file: %s\n", currentFile);
-
       wavFile = SD.open(currentFile, FILE_WRITE);
       if (!wavFile) {
         Serial.println("[REC]  ✗ FAIL — Cannot open file on SD");
       } else {
-        Serial.println("[REC]  ✓ File opened on SD");
         bytesWritten = 0;
         recStartMs   = millis();
         writeWavHeader(wavFile);
         recording = true;
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
+    }
+  }
 
-    } else {
-      // ── STOP RECORDING ──
-      Serial.println("[REC]  >> Stopping recording...");
+  // ── RELEASE → stop and upload ──
+  if (lastBtn == LOW && btn == HIGH) {
+    delay(30);
+    if (digitalRead(PIN_BUTTON) == HIGH && recording) {
       recording = false;
       uint32_t dur = (millis() - recStartMs) / 1000;
-      Serial.printf("[REC]  ✓ Duration: %u second(s)\n", dur);
-      Serial.printf("[REC]  ✓ Bytes written to SD: %u\n", bytesWritten);
-
+      Serial.printf("[BTN]  ✓ Released — stopping (%us recorded)\n", dur);
       wavFile.flush();
       wavFile.close();
-      Serial.println("[REC]  ✓ File flushed and closed");
-
       finalizeWav(currentFile);
-      Serial.printf("[REC]  ✓ Recording complete: %s\n", currentFile);
-
       sendToBackend(currentFile, dur);
     }
   }
 
-  end_loop:
   lastBtn = btn;
 
   // ── RECORD SAMPLES ──
