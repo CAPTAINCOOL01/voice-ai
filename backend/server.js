@@ -209,7 +209,7 @@ app.post("/auth/login", async (req, res) => {
 // ── Device heartbeat state (in-memory) ───────────────────
 let deviceLastSeen = null; // updated whenever ESP32 pings
 
-// POST /device/heartbeat — called by ESP32 every 30s
+// POST /device/heartbeat — called by ESP32 every 2s
 app.post("/device/heartbeat", auth, (req, res) => {
   deviceLastSeen = new Date();
   res.json({ status: "ok" });
@@ -217,7 +217,7 @@ app.post("/device/heartbeat", auth, (req, res) => {
 
 // GET /device/status — polled by frontend
 app.get("/device/status", auth, (req, res) => {
-  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 60000; // 60s timeout
+  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 6000; // 6s timeout
   res.json({ online: !!online, lastSeen: deviceLastSeen });
 });
 

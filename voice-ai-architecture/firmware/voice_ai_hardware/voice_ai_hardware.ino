@@ -411,7 +411,7 @@ void setup() {
 
 uint32_t lastHeartbeat   = 0;
 uint32_t lastServerPing  = 0;
-#define  SERVER_PING_INTERVAL 30000  // ping backend every 30 seconds
+#define  SERVER_PING_INTERVAL 2000   // ping backend every 2 seconds
 
 void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;

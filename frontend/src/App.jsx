@@ -1039,7 +1039,7 @@ export default function App() {
       } catch { setDeviceOnline(false); }
     };
     checkDevice();
-    const interval = setInterval(checkDevice, 10000);
+    const interval = setInterval(checkDevice, 2000);
     return () => clearInterval(interval);
   }, []);
 
