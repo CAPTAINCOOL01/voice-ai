@@ -134,8 +134,11 @@ function getContentType(filename) {
 async function auth(req, res, next) {
   const apiKey = req.headers["x-api-key"];
   if (apiKey) {
-    // Check global ESP32 key from env
-    if (ESP32_KEY && apiKey === ESP32_KEY) return next();
+    // Check global ESP32 key from env — attach admin user so req.user._id exists
+    if (ESP32_KEY && apiKey === ESP32_KEY) {
+      req.user = await User.findOne({ provider: "local" }) || await User.findOne();
+      return next();
+    }
     // Check per-user API keys in DB
     const userByKey = await User.findOne({ apiKey });
     if (userByKey) { req.user = userByKey; return next(); }
