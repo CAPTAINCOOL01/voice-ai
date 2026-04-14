@@ -430,8 +430,8 @@ void sendHeartbeat() {
 }
 
 void loop() {
-  // ── Server heartbeat (keeps Live indicator green) ──
-  if (millis() - lastServerPing > SERVER_PING_INTERVAL) {
+  // ── Server heartbeat — skip while recording so mic isn't starved ──
+  if (!recording && millis() - lastServerPing > SERVER_PING_INTERVAL) {
     lastServerPing = millis();
     sendHeartbeat();
   }
