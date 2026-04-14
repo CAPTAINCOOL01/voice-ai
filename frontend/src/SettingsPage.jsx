@@ -27,7 +27,7 @@ function Toast({ msg, type }) {
 
 function Section({ title, desc, children }) {
   return (
-    <div style={{ background: "#111113", border: "1px solid #1c1c1f", borderRadius: 16, padding: 28, marginBottom: 20 }}>
+    <div className="settings-section" style={{ background: "#111113", border: "1px solid #1c1c1f", borderRadius: 16, padding: 28, marginBottom: 20 }}>
       <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #1c1c1f" }}>
         <h3 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 16, color: "#fff", marginBottom: 4 }}>{title}</h3>
         {desc && <p style={{ fontSize: 13, color: "#52525b" }}>{desc}</p>}
@@ -93,7 +93,7 @@ function ProfileTab({ profile, onSaved }) {
   return (
     <>
       <Toast {...(toast || {})} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="profile-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <Input label="Display name" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
         <Input label="Username" value={profile?.username || ""} disabled />
       </div>
@@ -355,17 +355,55 @@ export default function SettingsPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#09090b", color: "#fff", fontFamily: "'DM Sans',sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap'); *{box-sizing:border-box;margin:0;padding:0}`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');
+        @keyframes spin { to { transform: rotate(360deg); } }
+        *{box-sizing:border-box;margin:0;padding:0}
+
+        /* ── Mobile ─────────────────────────────── */
+        @media(max-width:600px){
+          .settings-nav        { padding:0 14px !important; }
+          .settings-nav-title  { display:none !important; }
+          .settings-outer      { padding:20px 14px 60px !important; }
+          .settings-header h1  { font-size:22px !important; }
+          .settings-header     { margin-bottom:20px !important; }
+          .settings-layout     { grid-template-columns:1fr !important; gap:0 !important; }
+          .settings-sidebar    {
+            position:static !important;
+            border-radius:12px !important;
+            padding:4px !important;
+            margin-bottom:16px !important;
+            display:flex !important;
+            flex-direction:row !important;
+            overflow-x:auto !important;
+            gap:4px !important;
+          }
+          .settings-sidebar .sidebar-account { display:none !important; }
+          .settings-sidebar .sidebar-divider  { display:none !important; }
+          .settings-tab-btn    {
+            flex-shrink:0 !important;
+            width:auto !important;
+            padding:8px 12px !important;
+            font-size:12px !important;
+            border-radius:8px !important;
+            margin-bottom:0 !important;
+            white-space:nowrap !important;
+          }
+          .settings-tab-btn .tab-label { display:inline !important; }
+          .profile-grid        { grid-template-columns:1fr !important; }
+          .settings-section    { padding:18px !important; border-radius:12px !important; }
+        }
+      `}</style>
 
       {/* ── Top nav ── */}
-      <nav style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", borderBottom: "1px solid #18181b", position: "sticky", top: 0, background: "rgba(9,9,11,0.9)", backdropFilter: "blur(12px)", zIndex: 50 }}>
+      <nav className="settings-nav" style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", borderBottom: "1px solid #18181b", position: "sticky", top: 0, background: "rgba(9,9,11,0.9)", backdropFilter: "blur(12px)", zIndex: 50 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button onClick={() => navigate("/app")} style={{ background: "none", border: "none", cursor: "pointer", color: "#71717a", display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: 0 }}>
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
             Dashboard
           </button>
-          <span style={{ color: "#27272a" }}>／</span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>Settings</span>
+          <span className="settings-nav-title" style={{ color: "#27272a" }}>／</span>
+          <span className="settings-nav-title" style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>Settings</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#f59e0b,#fb923c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff" }}>
@@ -375,18 +413,18 @@ export default function SettingsPage() {
         </div>
       </nav>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px" }}>
+      <div className="settings-outer" style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px" }}>
         {/* ── Header ── */}
-        <div style={{ marginBottom: 32 }}>
+        <div className="settings-header" style={{ marginBottom: 32 }}>
           <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 28, marginBottom: 6 }}>Account Settings</h1>
           <p style={{ color: "#52525b", fontSize: 14 }}>Manage your profile, security, and device configuration.</p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 24, alignItems: "start" }}>
+        <div className="settings-layout" style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 24, alignItems: "start" }}>
           {/* ── Sidebar tabs ── */}
-          <div style={{ background: "#111113", border: "1px solid #1c1c1f", borderRadius: 14, padding: 8, position: "sticky", top: 80 }}>
+          <div className="settings-sidebar" style={{ background: "#111113", border: "1px solid #1c1c1f", borderRadius: 14, padding: 8, position: "sticky", top: 80 }}>
             {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{
+              <button className="settings-tab-btn" key={t.id} onClick={() => setTab(t.id)} style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
                 borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, textAlign: "left",
                 background: tab === t.id ? "rgba(245,158,11,0.1)" : "transparent",
@@ -395,13 +433,13 @@ export default function SettingsPage() {
                 marginBottom: 2,
               }}>
                 <span style={{ color: tab === t.id ? "#f59e0b" : "#3f3f46" }}>{t.icon}</span>
-                {t.label}
+                <span className="tab-label">{t.label}</span>
               </button>
             ))}
 
-            <div style={{ height: 1, background: "#1c1c1f", margin: "8px 0" }} />
+            <div className="sidebar-divider" style={{ height: 1, background: "#1c1c1f", margin: "8px 0" }} />
 
-            <div style={{ padding: "10px 14px" }}>
+            <div className="sidebar-account" style={{ padding: "10px 14px" }}>
               <p style={{ fontSize: 11, color: "#3f3f46", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Account</p>
               <p style={{ fontSize: 13, fontWeight: 600, color: "#a1a1aa" }}>{profile?.name || profile?.username}</p>
               {profile?.lastLogin && (
