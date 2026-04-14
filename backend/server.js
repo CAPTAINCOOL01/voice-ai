@@ -206,6 +206,21 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
+// ── Device heartbeat state (in-memory) ───────────────────
+let deviceLastSeen = null; // updated whenever ESP32 pings
+
+// POST /device/heartbeat — called by ESP32 every 30s
+app.post("/device/heartbeat", auth, (req, res) => {
+  deviceLastSeen = new Date();
+  res.json({ status: "ok" });
+});
+
+// GET /device/status — polled by frontend
+app.get("/device/status", auth, (req, res) => {
+  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 60000; // 60s timeout
+  res.json({ online: !!online, lastSeen: deviceLastSeen });
+});
+
 // ── OAuth helper — issue JWT and redirect to frontend ────
 function oauthSuccess(user, res) {
   const token = jwt.sign({ username: user.username, userId: user._id.toString() }, JWT_SECRET, { expiresIn: "30d" });

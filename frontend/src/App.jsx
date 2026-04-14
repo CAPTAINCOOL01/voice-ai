@@ -1004,6 +1004,8 @@ export default function App() {
   const [recordings, setRecordings]   = useState([]);
   const [loadingRecs, setLoadingRecs] = useState(true);
   const [fetchError,  setFetchError]  = useState(null);
+  const [deviceOnline, setDeviceOnline] = useState(false);
+  const [deviceLastSeen, setDeviceLastSeen] = useState(null);
   const [search, setSearch]           = useState("");
   const [analysingId, setAnalysingId] = useState(null);
   const [activeRec, setActiveRec]     = useState(null);
@@ -1025,6 +1027,21 @@ export default function App() {
   }, []);
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
+
+  // Poll device status every 10 seconds
+  useEffect(() => {
+    const checkDevice = async () => {
+      try {
+        const res  = await authFetch(`${API}/device/status`);
+        const data = await res.json();
+        setDeviceOnline(data.online);
+        setDeviceLastSeen(data.lastSeen);
+      } catch { setDeviceOnline(false); }
+    };
+    checkDevice();
+    const interval = setInterval(checkDevice, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
 
@@ -1158,11 +1175,13 @@ export default function App() {
                 ))}
               </div>
             )}
-            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:"#52525b" }}>
+            <div title={deviceOnline ? `Device online · Last seen ${deviceLastSeen ? new Date(deviceLastSeen).toLocaleTimeString() : "just now"}` : deviceLastSeen ? `Device offline · Last seen ${new Date(deviceLastSeen).toLocaleTimeString()}` : "Device never connected"}
+              style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color: deviceOnline ? "#4ade80" : "#52525b", cursor:"default" }}>
               <span style={{ width:7, height:7, borderRadius:"50%",
-                background: fetchError ? "#ef4444" : "#4ade80",
-                animation:"breathe 2s ease-in-out infinite", display:"inline-block" }} />
-              {fetchError ? "Offline" : "Live"}
+                background: deviceOnline ? "#4ade80" : "#3f3f46",
+                animation: deviceOnline ? "breathe 2s ease-in-out infinite" : "none",
+                display:"inline-block", transition:"background 0.5s" }} />
+              {deviceOnline ? "Live" : "Offline"}
             </div>
             <a href="/app/settings" style={{
               background:"none", border:"1px solid #27272a", borderRadius:8,

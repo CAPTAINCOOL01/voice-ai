@@ -409,17 +409,40 @@ void setup() {
    LOOP
    ───────────────────────────────────────── */
 
-// Print a loop heartbeat every 5 seconds so we know loop() is running
-uint32_t lastHeartbeat = 0;
+uint32_t lastHeartbeat   = 0;
+uint32_t lastServerPing  = 0;
+#define  SERVER_PING_INTERVAL 30000  // ping backend every 30 seconds
+
+void sendHeartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  WiFiClientSecure client;
+  client.setInsecure();
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
+  client.printf("POST /device/heartbeat HTTP/1.0\r\n");
+  client.printf("Host: %s\r\n",      BACKEND_HOST);
+  client.printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
+  client.print ("Content-Length: 0\r\n");
+  client.print ("Connection: close\r\n\r\n");
+  unsigned long t = millis();
+  while (client.connected() && millis() - t < 3000) delay(10);
+  client.stop();
+  Serial.println("[PING] ✓ Heartbeat sent to backend");
+}
 
 void loop() {
-  // ── Heartbeat ──
+  // ── Serial heartbeat (local debug) ──
   if (millis() - lastHeartbeat > 5000) {
     lastHeartbeat = millis();
     Serial.printf("[LOOP] ✓ Running — recording: %s  button: %s  WiFi: %s\n",
                   recording ? "YES" : "no",
                   digitalRead(PIN_BUTTON) ? "HIGH(not pressed)" : "LOW(pressed)",
                   WiFi.status() == WL_CONNECTED ? "connected" : "disconnected");
+  }
+
+  // ── Server heartbeat (keeps Live indicator green) ──
+  if (millis() - lastServerPing > SERVER_PING_INTERVAL) {
+    lastServerPing = millis();
+    sendHeartbeat();
   }
 
   // ── Button ──
