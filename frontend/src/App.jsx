@@ -536,7 +536,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.72)", zIndex:40, backdropFilter:"blur(4px)", WebkitBackdropFilter:"blur(4px)" }} />
 
-      <div style={{
+      <div className="detail-panel" style={{
         position:"fixed", top:0, right:0, bottom:0, width:"min(540px,100vw)",
         background:"#0d0d0f", borderLeft:"1px solid #27272a",
         zIndex:50, display:"flex", flexDirection:"column", overflow:"hidden",
@@ -1140,6 +1140,7 @@ export default function App() {
         @keyframes pulseR  { 0%{transform:scale(1);opacity:.55} 100%{transform:scale(2.2);opacity:0} }
         @keyframes fadeUp  { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
         @keyframes panelIn { from{transform:translateX(100%)} to{transform:translateX(0)} }
+        @keyframes panelUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
         @keyframes breathe { 0%,100%{opacity:.45} 50%{opacity:1} }
         @keyframes spin    { to{transform:rotate(360deg)} }
         @keyframes shimmer { 0%,100%{opacity:.4} 50%{opacity:.8} }
@@ -1148,12 +1149,37 @@ export default function App() {
         ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:2px}
         button:focus{outline:none} input::placeholder{color:#3f3f46}
+
+        /* ── Mobile ─────────────────────────────── */
+        @media(max-width:600px){
+          .nav-stats   { display:none !important; }
+          .nav-signout span { display:none; }
+          .rec-timer   { font-size:52px !important; letter-spacing:-2px !important; }
+          .wave-bars   { height:36px !important; }
+          .wave-bars > * { width:3px !important; }
+          .rec-btn     { width:72px !important; height:72px !important; }
+          .main-pad    { padding:20px 14px 100px !important; }
+          .recorder-card { padding:24px 16px !important; border-radius:18px !important; }
+          .detail-panel {
+            position:fixed !important; inset:0 !important;
+            width:100% !important; height:100% !important;
+            border-radius:0 !important;
+            animation:panelUp 0.28s cubic-bezier(.4,0,.2,1) !important;
+          }
+          .search-row  { flex-direction:column !important; align-items:stretch !important; gap:8px !important; }
+          .search-row h2 { font-size:17px !important; }
+          .search-controls { width:100% !important; }
+          .search-controls input { width:100% !important; flex:1 !important; }
+          .rec-actions { max-width:100% !important; }
+          .nav-inner   { padding:0 14px !important; }
+          .rec-status-badge { font-size:11px !important; }
+        }
       `}</style>
 
       {/* NAVBAR */}
       <header style={{ position:"sticky", top:0, zIndex:20, borderBottom:"1px solid #1a1a1e",
         background:"rgba(9,9,11,.9)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)" }}>
-        <div style={{ maxWidth:820, margin:"0 auto", padding:"0 20px", height:56,
+        <div className="nav-inner" style={{ maxWidth:820, margin:"0 auto", padding:"0 20px", height:56,
           display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <div style={{ width:32, height:32, borderRadius:12, background:"linear-gradient(135deg,#f59e0b,#fb923c)",
@@ -1166,7 +1192,7 @@ export default function App() {
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:20 }}>
             {recordings.length > 0 && (
-              <div style={{ display:"flex", gap:16 }}>
+              <div className="nav-stats" style={{ display:"flex", gap:16 }}>
                 {[{v:recordings.length,l:"notes"},{v:totalMins+"m",l:"recorded"},{v:totalTasks,l:"tasks"}].map(s=>(
                   <div key={s.l} style={{ fontSize:12, color:"#71717a", display:"flex", gap:4, alignItems:"baseline" }}>
                     <span style={{ fontWeight:700, color:"#a1a1aa", fontFamily:"'Sora',sans-serif" }}>{s.v}</span>
@@ -1194,27 +1220,31 @@ export default function App() {
                 <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </a>
-            <button onClick={()=>{ clearToken(); setAuthed(false); }} style={{
+            <button className="nav-signout" onClick={()=>{ clearToken(); setAuthed(false); }} style={{
               background:"none", border:"1px solid #27272a", borderRadius:8,
               padding:"5px 11px", fontSize:11, color:"#71717a", cursor:"pointer",
               fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+              display:"flex", alignItems:"center", gap:5,
             }}
             onMouseEnter={e=>{ e.currentTarget.style.borderColor="#ef4444"; e.currentTarget.style.color="#f87171"; }}
             onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
-              Sign out
+              <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              <span>Sign out</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main style={{ maxWidth:820, margin:"0 auto", padding:"32px 20px 80px" }}>
+      <main className="main-pad" style={{ maxWidth:820, margin:"0 auto", padding:"32px 20px 80px" }}>
 
         {/* RECORDER */}
         <section style={{ marginBottom:48 }}>
           <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", marginBottom:20 }}>
             New Recording
           </h2>
-          <div style={{ background:"#18181b", border:"1px solid #27272a", borderRadius:24,
+          <div className="recorder-card" style={{ background:"#18181b", border:"1px solid #27272a", borderRadius:24,
             padding:"32px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:24 }}>
 
             <div style={{
@@ -1227,12 +1257,12 @@ export default function App() {
               {recording ? "Recording in progress…" : audioBlob ? "Recording ready — choose an action below" : "Tap the button to start"}
             </div>
 
-            <span style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:62, color:"#fff",
+            <span className="rec-timer" style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:62, color:"#fff",
               letterSpacing:"-3px", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>
               {fmtTime(timer)}
             </span>
 
-            <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:52 }}>
+            <div className="wave-bars" style={{ display:"flex", alignItems:"flex-end", gap:2, height:52 }}>
               {Array.from({length:30}).map((_,i)=><WaveBar key={i} active={recording} i={i}/>)}
             </div>
 
@@ -1241,7 +1271,7 @@ export default function App() {
                 <div style={{ position:"absolute", width:100, height:100, borderRadius:"50%", background:"rgba(239,68,68,.12)", animation:"pulseR 2s ease-in-out infinite" }}/>
                 <div style={{ position:"absolute", width:100, height:100, borderRadius:"50%", background:"rgba(239,68,68,.07)", animation:"pulseR 2s ease-in-out infinite .7s" }}/>
               </>}
-              <button onClick={recording ? stopRecording : startRecording} disabled={!!audioBlob || uploading}
+              <button className="rec-btn" onClick={recording ? stopRecording : startRecording} disabled={!!audioBlob || uploading}
                 style={{
                   position:"relative", zIndex:1, width:88, height:88, borderRadius:"50%", border:"none",
                   cursor: audioBlob||uploading ? "default" : "pointer",
@@ -1270,7 +1300,7 @@ export default function App() {
             )}
 
             {audioBlob && !uploading && !uploadDone && (
-              <div style={{ display:"flex", flexDirection:"column", gap:8, width:"100%", maxWidth:400, animation:"fadeUp 0.3s ease" }}>
+              <div className="rec-actions" style={{ display:"flex", flexDirection:"column", gap:8, width:"100%", maxWidth:400, animation:"fadeUp 0.3s ease" }}>
                 <button onClick={uploadRecording} style={{
                   width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8,
                   padding:"13px", borderRadius:14, border:"none", cursor:"pointer",
@@ -1353,7 +1383,7 @@ export default function App() {
 
         {/* RECORDINGS */}
         <section>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+          <div className="search-row" style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
             marginBottom:16, gap:12, flexWrap:"wrap" }}>
             <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff" }}>
               Your Recordings
@@ -1363,8 +1393,8 @@ export default function App() {
                 </span>
               )}
             </h2>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <div style={{ position:"relative" }}>
+            <div className="search-controls" style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <div style={{ position:"relative", flex:1 }}>
                 <svg style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}
                   width="13" height="13" fill="none" stroke="#52525b" strokeWidth="2" viewBox="0 0 24 24">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
