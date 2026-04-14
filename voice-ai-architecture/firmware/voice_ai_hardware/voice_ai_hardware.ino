@@ -436,40 +436,36 @@ void loop() {
     sendHeartbeat();
   }
 
-  // ── Button (hold to record, release to upload) ──
+  // ── Button (press once to start, press again to stop) ──
   static bool lastBtn = HIGH;
   bool btn = digitalRead(PIN_BUTTON);
 
-  // ── PRESS DOWN → start recording ──
   if (lastBtn == HIGH && btn == LOW) {
-    delay(30);
+    delay(50);
     if (digitalRead(PIN_BUTTON) == LOW) {
-      Serial.println("[BTN]  ✓ Pressed — starting recording");
-      sprintf(currentFile, "/REC%03u.wav", fileIndex++);
-      wavFile = SD.open(currentFile, FILE_WRITE);
-      if (!wavFile) {
-        Serial.println("[REC]  ✗ FAIL — Cannot open file on SD");
+      if (!recording) {
+        // ── START ──
+        sprintf(currentFile, "/REC%03u.wav", fileIndex++);
+        wavFile = SD.open(currentFile, FILE_WRITE);
+        if (!wavFile) {
+          Serial.println("[REC]  ✗ FAIL — Cannot open file on SD");
+        } else {
+          bytesWritten = 0;
+          recStartMs   = millis();
+          writeWavHeader(wavFile);
+          recording = true;
+          Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
+        }
       } else {
-        bytesWritten = 0;
-        recStartMs   = millis();
-        writeWavHeader(wavFile);
-        recording = true;
-        Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
+        // ── STOP ──
+        recording = false;
+        uint32_t dur = (millis() - recStartMs) / 1000;
+        Serial.printf("[REC]  ✓ Stopped — %us recorded\n", dur);
+        wavFile.flush();
+        wavFile.close();
+        finalizeWav(currentFile);
+        sendToBackend(currentFile, dur);
       }
-    }
-  }
-
-  // ── RELEASE → stop and upload ──
-  if (lastBtn == LOW && btn == HIGH) {
-    delay(30);
-    if (digitalRead(PIN_BUTTON) == HIGH && recording) {
-      recording = false;
-      uint32_t dur = (millis() - recStartMs) / 1000;
-      Serial.printf("[BTN]  ✓ Released — stopping (%us recorded)\n", dur);
-      wavFile.flush();
-      wavFile.close();
-      finalizeWav(currentFile);
-      sendToBackend(currentFile, dur);
     }
   }
 
