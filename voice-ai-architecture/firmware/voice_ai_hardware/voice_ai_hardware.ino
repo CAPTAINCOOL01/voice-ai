@@ -441,7 +441,7 @@ void loop() {
   bool btn = digitalRead(PIN_BUTTON);
 
   if (lastBtn == HIGH && btn == LOW) {
-    delay(50);
+    delay(20);
     if (digitalRead(PIN_BUTTON) == LOW) {
       if (!recording) {
         // ── START ──
