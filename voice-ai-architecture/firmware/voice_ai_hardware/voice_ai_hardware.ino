@@ -25,6 +25,7 @@
 #define PIN_I2S_SD   33
 #define PIN_SD_CS     5
 #define PIN_BUTTON   12
+#define PIN_BATT     34   // voltage divider: batt+ → 100kΩ → GPIO34 → 100kΩ → GND
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -456,7 +457,7 @@ void loop() {
     if (btn == HIGH) {
       Serial.println("[BTN]  ✗ Bounce — ignored");
       lastBtn = HIGH;
-      return;
+      goto end_loop;
     }
     Serial.println("[BTN]  ✓ Press confirmed after debounce");
 
@@ -497,6 +498,7 @@ void loop() {
     }
   }
 
+  end_loop:
   lastBtn = btn;
 
   // ── RECORD SAMPLES ──
