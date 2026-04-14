@@ -410,7 +410,7 @@ app.get("/recordings/:id/audio", auth, async (req, res) => {
     const { Body, ContentType, ContentLength } = await s3.send(
       new GetObjectCommand({ Bucket: BUCKET, Key: recording.filename })
     );
-    res.setHeader("Content-Type", ContentType || getContentType(recording.filename));
+    res.setHeader("Content-Type", getContentType(recording.filename));
     if (ContentLength) res.setHeader("Content-Length", ContentLength);
     res.setHeader("Accept-Ranges", "bytes");
     Body.pipe(res);

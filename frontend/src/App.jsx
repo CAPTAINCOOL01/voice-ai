@@ -236,8 +236,13 @@ function AudioPlayer({ src, large }) {
     let url;
     authFetch(src)
       .then(r => r.blob())
-      .then(blob => { url = URL.createObjectURL(blob); setBlobUrl(url); })
-      .catch(() => setBlobUrl(src)); // fallback to direct src
+      .then(blob => {
+        const mime = src.includes("audio") ? (blob.type || "audio/wav") : blob.type;
+        const typed = new Blob([blob], { type: mime });
+        url = URL.createObjectURL(typed);
+        setBlobUrl(url);
+      })
+      .catch(() => setBlobUrl(src));
     return () => { if (url) URL.revokeObjectURL(url); };
   }, [src]);
 
@@ -511,7 +516,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
 
   const downloadAudio = () => {
     const a = document.createElement("a");
-    a.href = `${API}/recordings/${rec._id}/audio`; a.download = `${rec.title||"recording"}.webm`; a.click();
+    a.href = `${API}/recordings/${rec._id}/audio`; a.download = rec.filename?.endsWith(".wav") ? `${rec.title||"recording"}.wav` : `${rec.title||"recording"}.webm`; a.click();
     showToast("Audio download started!");
   };
 
