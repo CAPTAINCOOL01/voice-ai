@@ -5,6 +5,8 @@ const mongoose = require("mongoose");
 const multer   = require("multer");
 const cors     = require("cors");
 const jwt      = require("jsonwebtoken");
+const bcrypt   = require("bcrypt");
+const crypto   = require("crypto");
 const OpenAI   = require("openai");
 const path     = require("path");
 const fs       = require("fs");
@@ -19,7 +21,7 @@ const APP_USER   = process.env.APP_USERNAME;
 const APP_PASS   = process.env.APP_PASSWORD;
 const ESP32_KEY  = process.env.ESP32_API_KEY;
 const BUCKET     = process.env.R2_BUCKET;
-const R2_PUB     = process.env.R2_PUBLIC_URL; // https://pub-xxx.r2.dev
+const R2_PUB     = process.env.R2_PUBLIC_URL;
 
 // ── Services ─────────────────────────────────────────────
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -38,7 +40,7 @@ const app = express();
 app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 
-// ── Serve React frontend (built files) ────────────────────
+// ── Serve React frontend ──────────────────────────────────
 const DIST = path.join(__dirname, "..", "frontend", "dist");
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST));
@@ -49,10 +51,21 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => console.error("❌ MongoDB:", err));
 
-// ── Model ─────────────────────────────────────────────────
+// ── Models ────────────────────────────────────────────────
+const UserSchema = new mongoose.Schema({
+  username:     { type: String, unique: true, required: true },
+  name:         { type: String, default: "" },
+  email:        { type: String, default: "" },
+  passwordHash: { type: String, required: true },
+  apiKey:       { type: String, default: () => crypto.randomBytes(32).toString("hex") },
+  createdAt:    { type: Date, default: Date.now },
+  lastLogin:    { type: Date },
+});
+const User = mongoose.model("User", UserSchema);
+
 const Recording = mongoose.model("Recording", {
   filename:    String,
-  fileUrl:     String,   // Cloudflare R2 public URL
+  fileUrl:     String,
   transcript:  String,
   title:       String,
   summary:     String,
@@ -62,7 +75,7 @@ const Recording = mongoose.model("Recording", {
   createdAt:   { type: Date, default: Date.now },
 });
 
-// ── Multer — saves to OS temp dir ─────────────────────────
+// ── Multer ────────────────────────────────────────────────
 const upload = multer({
   storage: multer.diskStorage({
     destination: os.tmpdir(),
@@ -75,12 +88,7 @@ const upload = multer({
 async function uploadToR2(localPath, key, contentType) {
   await new Upload({
     client: s3,
-    params: {
-      Bucket:      BUCKET,
-      Key:         key,
-      Body:        fs.createReadStream(localPath),
-      ContentType: contentType,
-    },
+    params: { Bucket: BUCKET, Key: key, Body: fs.createReadStream(localPath), ContentType: contentType },
   }).done();
   if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
   return `${R2_PUB}/${key}`;
@@ -97,11 +105,8 @@ async function downloadFromR2(key, destPath) {
 }
 
 async function deleteFromR2(key) {
-  try {
-    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-  } catch (e) {
-    console.warn("R2 delete warning:", e.message);
-  }
+  try { await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })); }
+  catch (e) { console.warn("R2 delete warning:", e.message); }
 }
 
 function getContentType(filename) {
@@ -109,13 +114,22 @@ function getContentType(filename) {
 }
 
 // ── Auth middleware ───────────────────────────────────────
-// Accepts: ESP32 static API key OR browser JWT
-function auth(req, res, next) {
-  if (ESP32_KEY && req.headers["x-api-key"] === ESP32_KEY) return next();
+async function auth(req, res, next) {
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey) {
+    // Check global ESP32 key from env
+    if (ESP32_KEY && apiKey === ESP32_KEY) return next();
+    // Check per-user API keys in DB
+    const userByKey = await User.findOne({ apiKey });
+    if (userByKey) { req.user = userByKey; return next(); }
+  }
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Unauthorized" });
   try {
-    jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.userId) {
+      req.user = await User.findById(payload.userId);
+    }
     next();
   } catch {
     res.status(401).json({ error: "Invalid token" });
@@ -136,32 +150,129 @@ async function generateNotes(text) {
 }
 
 // ════════════════════════════════════════════════════════
-//  ROUTES
+//  AUTH ROUTES
 // ════════════════════════════════════════════════════════
 
 // ── POST /auth/login ──────────────────────────────────────
-app.post("/auth/login", (req, res) => {
+app.post("/auth/login", async (req, res) => {
   const { username, password } = req.body || {};
-  if (!APP_USER || !APP_PASS) return res.status(500).json({ error: "Auth not configured" });
-  if (username !== APP_USER || password !== APP_PASS)
-    return res.status(401).json({ error: "Invalid credentials" });
-  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: "30d" });
-  res.json({ token });
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+
+  try {
+    let user = await User.findOne({ username });
+
+    if (!user) {
+      // Auto-migrate env credentials → first time creates DB user
+      if (APP_USER && APP_PASS && username === APP_USER && password === APP_PASS) {
+        const passwordHash = await bcrypt.hash(password, 10);
+        user = await User.create({
+          username,
+          name: "Admin",
+          email: "",
+          passwordHash,
+          apiKey: ESP32_KEY || crypto.randomBytes(32).toString("hex"),
+        });
+        console.log("✅ User auto-created from env credentials");
+      } else {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+    } else {
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
+    const token = jwt.sign({ username, userId: user._id.toString() }, JWT_SECRET, { expiresIn: "30d" });
+    res.json({ token });
+  } catch (err) {
+    console.error("❌ Login:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
+
+// ════════════════════════════════════════════════════════
+//  USER / SETTINGS ROUTES
+// ════════════════════════════════════════════════════════
+
+// ── GET /api/user/profile ─────────────────────────────────
+app.get("/api/user/profile", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  const u = req.user;
+  res.json({
+    username:  u.username,
+    name:      u.name,
+    email:     u.email,
+    createdAt: u.createdAt,
+    lastLogin: u.lastLogin,
+  });
+});
+
+// ── PUT /api/user/profile ─────────────────────────────────
+app.put("/api/user/profile", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  const { name, email } = req.body;
+  const updated = await User.findByIdAndUpdate(
+    req.user._id, { name: name || "", email: email || "" }, { new: true }
+  );
+  res.json({ username: updated.username, name: updated.name, email: updated.email });
+});
+
+// ── PUT /api/user/password ────────────────────────────────
+app.put("/api/user/password", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: "Both passwords required" });
+  if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+  const valid = await bcrypt.compare(currentPassword, req.user.passwordHash);
+  if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await User.findByIdAndUpdate(req.user._id, { passwordHash });
+  res.json({ status: "ok" });
+});
+
+// ── GET /api/user/api-key ─────────────────────────────────
+app.get("/api/user/api-key", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  res.json({ apiKey: req.user.apiKey });
+});
+
+// ── POST /api/user/api-key — regenerate ──────────────────
+app.post("/api/user/api-key", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  const newKey = crypto.randomBytes(32).toString("hex");
+  await User.findByIdAndUpdate(req.user._id, { apiKey: newKey });
+  res.json({ apiKey: newKey });
+});
+
+// ── DELETE /api/user/data — delete all recordings ─────────
+app.delete("/api/user/data", auth, async (req, res) => {
+  try {
+    const recordings = await Recording.find();
+    await Promise.all(recordings.map(r => deleteFromR2(r.filename)));
+    await Recording.deleteMany({});
+    res.json({ status: "ok", deleted: recordings.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════
+//  RECORDING ROUTES
+// ════════════════════════════════════════════════════════
 
 // ── POST /upload — transcribe + AI + save ─────────────────
 app.post("/upload", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
   try {
     const duration = parseFloat(req.body.duration) || 0;
-
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(localPath), model: "whisper-1",
     });
-    const text   = transcription.text;
-    const parsed = await generateNotes(text);
+    const text    = transcription.text;
+    const parsed  = await generateNotes(text);
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
-
     const recording = await Recording.create({
       filename, fileUrl,
       transcript:  text,
@@ -198,31 +309,24 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
   }
 });
 
-// ── POST /recordings/:id/analyse — run AI on saved file ──
+// ── POST /recordings/:id/analyse ─────────────────────────
 app.post("/recordings/:id/analyse", auth, async (req, res) => {
   try {
     const recording = await Recording.findById(req.params.id);
     if (!recording) return res.status(404).json({ error: "Not found" });
-
     const tmpPath = path.join(os.tmpdir(), recording.filename);
     await downloadFromR2(recording.filename, tmpPath);
-
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tmpPath), model: "whisper-1",
     });
     const text = transcription.text;
     if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-
-    const parsed = await generateNotes(text);
+    const parsed  = await generateNotes(text);
     const updated = await Recording.findByIdAndUpdate(
       req.params.id,
-      {
-        transcript:  text,
-        title:       parsed.title       || recording.title,
-        summary:     parsed.summary     || "",
-        tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
-        actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
-      },
+      { transcript: text, title: parsed.title || recording.title, summary: parsed.summary || "",
+        tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+        actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [] },
       { new: true }
     );
     res.json(updated);
@@ -232,7 +336,7 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
   }
 });
 
-// ── GET /recordings/:id/audio — proxy audio from R2 ──────
+// ── GET /recordings/:id/audio — proxy from R2 ────────────
 app.get("/recordings/:id/audio", auth, async (req, res) => {
   try {
     const recording = await Recording.findById(req.params.id);
@@ -251,11 +355,8 @@ app.get("/recordings/:id/audio", auth, async (req, res) => {
 
 // ── GET /recordings ───────────────────────────────────────
 app.get("/recordings", auth, async (req, res) => {
-  try {
-    res.json(await Recording.find().sort({ createdAt: -1 }));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await Recording.find().sort({ createdAt: -1 })); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── DELETE /recordings/:id ────────────────────────────────
@@ -265,9 +366,7 @@ app.delete("/recordings/:id", auth, async (req, res) => {
     if (!recording) return res.status(404).json({ error: "Not found" });
     await deleteFromR2(recording.filename);
     res.json({ status: "ok" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── PATCH /recordings/:id ─────────────────────────────────
@@ -279,9 +378,7 @@ app.patch("/recordings/:id", auth, async (req, res) => {
     );
     if (!recording) return res.status(404).json({ error: "Not found" });
     res.json(recording);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── POST /chat ────────────────────────────────────────────
@@ -289,17 +386,14 @@ app.post("/chat", auth, async (req, res) => {
   try {
     const { system, messages } = req.body;
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 1000,
+      model: "gpt-4o-mini", max_tokens: 1000,
       messages: [
         { role: "system", content: system || "You are a helpful assistant." },
         ...(messages || []),
       ],
     });
     res.json({ content: response.choices[0].message.content });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Fallback → React app ──────────────────────────────────
