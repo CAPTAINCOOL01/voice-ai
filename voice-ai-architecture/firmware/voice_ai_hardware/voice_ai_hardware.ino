@@ -427,19 +427,9 @@ void sendHeartbeat() {
   unsigned long t = millis();
   while (client.connected() && millis() - t < 3000) delay(10);
   client.stop();
-  Serial.println("[PING] ✓ Heartbeat sent to backend");
 }
 
 void loop() {
-  // ── Serial heartbeat (local debug) ──
-  if (millis() - lastHeartbeat > 5000) {
-    lastHeartbeat = millis();
-    Serial.printf("[LOOP] ✓ Running — recording: %s  button: %s  WiFi: %s\n",
-                  recording ? "YES" : "no",
-                  digitalRead(PIN_BUTTON) ? "HIGH(not pressed)" : "LOW(pressed)",
-                  WiFi.status() == WL_CONNECTED ? "connected" : "disconnected");
-  }
-
   // ── Server heartbeat (keeps Live indicator green) ──
   if (millis() - lastServerPing > SERVER_PING_INTERVAL) {
     lastServerPing = millis();
@@ -507,10 +497,5 @@ void loop() {
     }
 
     // Log bytes written every 5 seconds during recording
-    static uint32_t lastRecLog = 0;
-    if (millis() - lastRecLog > 5000) {
-      lastRecLog = millis();
-      Serial.printf("[REC]  ✓ Still recording — %u bytes written so far\n", bytesWritten);
-    }
   }
 }
