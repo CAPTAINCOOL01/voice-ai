@@ -977,7 +977,21 @@ function Skeleton() {
 
 // ── App ────────────────────────────────────────────────
 export default function App() {
-  const [authed, setAuthed] = useState(!!getToken());
+  const [authed, setAuthed] = useState(() => {
+    // Also check for OAuth token in URL on first render
+    const params = new URLSearchParams(window.location.search);
+    const oauthToken = params.get("token");
+    if (oauthToken) { setToken(oauthToken); window.history.replaceState({}, "", "/app"); return true; }
+    return !!getToken();
+  });
+  // Show error toast if OAuth failed
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err === "apple_coming_soon") { showToast("Apple Sign In is coming soon."); window.history.replaceState({}, "", "/app"); }
+    if (err === "oauth_failed")      { showToast("Sign in failed. Please try again."); window.history.replaceState({}, "", "/app"); }
+  }, []);
+
   const [recording, setRecording]     = useState(false);
   const [audioBlob, setAudioBlob]     = useState(null);
   const [audioURL,  setAudioURL]      = useState(null);

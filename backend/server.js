@@ -1,16 +1,18 @@
 require("dotenv").config();
 
-const express  = require("express");
-const mongoose = require("mongoose");
-const multer   = require("multer");
-const cors     = require("cors");
-const jwt      = require("jsonwebtoken");
-const bcrypt   = require("bcrypt");
-const crypto   = require("crypto");
-const OpenAI   = require("openai");
-const path     = require("path");
-const fs       = require("fs");
-const os       = require("os");
+const express        = require("express");
+const mongoose       = require("mongoose");
+const multer         = require("multer");
+const cors           = require("cors");
+const jwt            = require("jsonwebtoken");
+const bcrypt         = require("bcrypt");
+const crypto         = require("crypto");
+const session        = require("express-session");
+const passport       = require("passport");
+const OpenAI         = require("openai");
+const path           = require("path");
+const fs             = require("fs");
+const os             = require("os");
 const { S3Client, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
 
@@ -39,6 +41,14 @@ const s3 = new S3Client({
 const app = express();
 app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
+app.use(session({
+  secret:            process.env.JWT_SECRET || "changeme",
+  resave:            false,
+  saveUninitialized: false,
+  cookie:            { secure: false, maxAge: 5 * 60 * 1000 }, // 5 min — only needed for OAuth handshake
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 // ── Serve React frontend ──────────────────────────────────
 const DIST = path.join(__dirname, "..", "frontend", "dist");
@@ -56,12 +66,18 @@ const UserSchema = new mongoose.Schema({
   username:     { type: String, unique: true, required: true },
   name:         { type: String, default: "" },
   email:        { type: String, default: "" },
-  passwordHash: { type: String, required: true },
+  passwordHash: { type: String, default: null },   // null for OAuth users
+  provider:     { type: String, default: "local" }, // local | google | github
+  providerId:   { type: String, default: null },
+  avatar:       { type: String, default: "" },
   apiKey:       { type: String, default: () => crypto.randomBytes(32).toString("hex") },
   createdAt:    { type: Date, default: Date.now },
   lastLogin:    { type: Date },
 });
 const User = mongoose.model("User", UserSchema);
+
+// ── Init Passport strategies (after User model is defined) ─
+require("./config/passport")(User);
 
 const Recording = mongoose.model("Recording", {
   filename:    String,
@@ -188,6 +204,35 @@ app.post("/auth/login", async (req, res) => {
     console.error("❌ Login:", err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── OAuth helper — issue JWT and redirect to frontend ────
+function oauthSuccess(user, res) {
+  const token = jwt.sign({ username: user.username, userId: user._id.toString() }, JWT_SECRET, { expiresIn: "30d" });
+  res.redirect(`/app?token=${token}`);
+}
+
+// ── Google OAuth ──────────────────────────────────────────
+app.get("/auth/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+app.get("/auth/google/callback",
+  passport.authenticate("google", { session: false, failureRedirect: "/app?error=oauth_failed" }),
+  (req, res) => oauthSuccess(req.user, res)
+);
+
+// ── GitHub OAuth ──────────────────────────────────────────
+app.get("/auth/github",
+  passport.authenticate("github", { scope: ["user:email"] })
+);
+app.get("/auth/github/callback",
+  passport.authenticate("github", { session: false, failureRedirect: "/app?error=oauth_failed" }),
+  (req, res) => oauthSuccess(req.user, res)
+);
+
+// ── Apple (placeholder — implement when Apple Dev account ready) ──
+app.get("/auth/apple", (req, res) => {
+  res.redirect("/app?error=apple_coming_soon");
 });
 
 // ════════════════════════════════════════════════════════
