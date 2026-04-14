@@ -514,10 +514,18 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
     showToast("Transcript downloaded!");
   };
 
-  const downloadAudio = () => {
-    const a = document.createElement("a");
-    a.href = `${API}/recordings/${rec._id}/audio`; a.download = rec.filename?.endsWith(".wav") ? `${rec.title||"recording"}.wav` : `${rec.title||"recording"}.webm`; a.click();
-    showToast("Audio download started!");
+  const downloadAudio = async () => {
+    showToast("Preparing download…");
+    try {
+      const r = await authFetch(`${API}/recordings/${rec._id}/audio`);
+      const blob = await r.blob();
+      const ext = rec.filename?.endsWith(".wav") ? "wav" : "webm";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${rec.title||"recording"}.${ext}`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      showToast("Audio download started!");
+    } catch { showToast("Download failed — please try again."); }
   };
 
   const done     = items.filter(x=>x.done).length;
