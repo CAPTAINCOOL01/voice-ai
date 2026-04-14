@@ -80,6 +80,7 @@ const User = mongoose.model("User", UserSchema);
 require("./config/passport")(User);
 
 const Recording = mongoose.model("Recording", {
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   filename:    String,
   fileUrl:     String,
   transcript:  String,
@@ -309,9 +310,9 @@ app.post("/api/user/api-key", auth, async (req, res) => {
 // ── DELETE /api/user/data — delete all recordings ─────────
 app.delete("/api/user/data", auth, async (req, res) => {
   try {
-    const recordings = await Recording.find();
+    const recordings = await Recording.find({ userId: req.user._id });
     await Promise.all(recordings.map(r => deleteFromR2(r.filename)));
-    await Recording.deleteMany({});
+    await Recording.deleteMany({ userId: req.user._id });
     res.json({ status: "ok", deleted: recordings.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -334,6 +335,7 @@ app.post("/upload", auth, upload.single("audio"), async (req, res) => {
     const parsed  = await generateNotes(text);
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
     const recording = await Recording.create({
+      userId: req.user._id,
       filename, fileUrl,
       transcript:  text,
       title:       parsed.title       || "Untitled Recording",
@@ -358,6 +360,7 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
     const fileUrl  = await uploadToR2(localPath, filename, getContentType(filename));
     const title    = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
     const recording = await Recording.create({
+      userId: req.user._id,
       filename, fileUrl, transcript: "", title,
       summary: "", tags: [], actionItems: [], duration,
     });
@@ -372,7 +375,7 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
 // ── POST /recordings/:id/analyse ─────────────────────────
 app.post("/recordings/:id/analyse", auth, async (req, res) => {
   try {
-    const recording = await Recording.findById(req.params.id);
+    const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
     if (!recording) return res.status(404).json({ error: "Not found" });
     const tmpPath = path.join(os.tmpdir(), recording.filename);
     await downloadFromR2(recording.filename, tmpPath);
@@ -399,7 +402,7 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
 // ── GET /recordings/:id/audio — proxy from R2 ────────────
 app.get("/recordings/:id/audio", auth, async (req, res) => {
   try {
-    const recording = await Recording.findById(req.params.id);
+    const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
     if (!recording) return res.status(404).json({ error: "Not found" });
     const { Body, ContentType, ContentLength } = await s3.send(
       new GetObjectCommand({ Bucket: BUCKET, Key: recording.filename })
@@ -415,14 +418,14 @@ app.get("/recordings/:id/audio", auth, async (req, res) => {
 
 // ── GET /recordings ───────────────────────────────────────
 app.get("/recordings", auth, async (req, res) => {
-  try { res.json(await Recording.find().sort({ createdAt: -1 })); }
+  try { res.json(await Recording.find({ userId: req.user._id }).sort({ createdAt: -1 })); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── DELETE /recordings/:id ────────────────────────────────
 app.delete("/recordings/:id", auth, async (req, res) => {
   try {
-    const recording = await Recording.findByIdAndDelete(req.params.id);
+    const recording = await Recording.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     if (!recording) return res.status(404).json({ error: "Not found" });
     await deleteFromR2(recording.filename);
     res.json({ status: "ok" });
@@ -433,8 +436,8 @@ app.delete("/recordings/:id", auth, async (req, res) => {
 app.patch("/recordings/:id", auth, async (req, res) => {
   try {
     const { title, summary, tags, actionItems } = req.body;
-    const recording = await Recording.findByIdAndUpdate(
-      req.params.id, { title, summary, tags, actionItems }, { new: true }
+    const recording = await Recording.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id }, { title, summary, tags, actionItems }, { new: true }
     );
     if (!recording) return res.status(404).json({ error: "Not found" });
     res.json(recording);
