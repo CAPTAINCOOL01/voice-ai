@@ -49,8 +49,9 @@ uint32_t bytesWritten = 0;
 uint16_t fileIndex    = 0;
 uint32_t recStartMs   = 0;
 char     currentFile[20];
-bool     firstRead    = true;
-uint32_t lastLog      = 0;
+bool     firstRead     = true;
+uint32_t lastLog       = 0;
+uint32_t lastFlush     = 0;
 
 /* ─────────────────────────────────────────
    WAV HELPERS
@@ -364,6 +365,7 @@ void loop() {
         recStartMs   = millis();
         firstRead    = true;
         lastLog      = millis();
+        lastFlush    = 0;
         writeWavHeader(wavFile);
         recording = true;
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
@@ -403,6 +405,12 @@ void loop() {
       int16_t s = (int16_t)((int32_t)buf[i] >> 14);
       wavFile.write((uint8_t*)&s, 2);
       bytesWritten += 2;
+    }
+
+    // Flush to SD every 32KB (~1 second of audio) to prevent data loss on close
+    if (bytesWritten - lastFlush >= 32768) {
+      wavFile.flush();
+      lastFlush = bytesWritten;
     }
   }
 }
