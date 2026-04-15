@@ -70,29 +70,25 @@ void writeWavHeader(File &f) {
   f.write((uint8_t*)&rate,     4);    f.write((uint8_t*)&byteRate, 4);
   f.write((uint8_t*)&align,    2);    f.write((uint8_t*)&bits,     2);
   f.write((const uint8_t*)"data", 4); f.write((uint8_t*)&zero32,   4);
-  Serial.println("[WAV]  ✓ Header written");
 }
 
 void finalizeWav(const char* path) {
-  Serial.printf("[WAV]  Finalizing %s\n", path);
+  Serial.printf("[WAV]  Finalizing %s ...\n", path);
 
   File check = SD.open(path);
   if (!check) { Serial.println("[WAV]  ✗ Cannot open file"); return; }
   uint32_t fileSize = check.size();
   check.close();
 
-  if (fileSize < 44) { Serial.println("[WAV]  ✗ File too small"); return; }
+  if (fileSize < 44) { Serial.println("[WAV]  ✗ File too small — no audio captured"); return; }
 
   uint32_t dataSize = fileSize - 44;
   uint32_t riffSize = fileSize - 8;
-  Serial.printf("[WAV]  ✓ Audio data: %u bytes\n", dataSize);
 
+  // Copy audio data to temp file, then rebuild with correct header
   File src = SD.open(path);
-  if (!src) { Serial.println("[WAV]  ✗ Cannot reopen source"); return; }
   src.seek(44);
-
-  const char* tmpPath = "/tmp.raw";
-  File tmp = SD.open(tmpPath, FILE_WRITE);
+  File tmp = SD.open("/tmp.raw", FILE_WRITE);
   if (!tmp) { src.close(); Serial.println("[WAV]  ✗ Cannot create temp file"); return; }
 
   uint8_t buf[512];
@@ -120,28 +116,28 @@ void finalizeWav(const char* path) {
   out.write((uint8_t*)&align,    2);    out.write((uint8_t*)&bits,     2);
   out.write((const uint8_t*)"data", 4); out.write((uint8_t*)&dataSize, 4);
 
-  File raw = SD.open(tmpPath);
+  File raw = SD.open("/tmp.raw");
   uint32_t written = 0;
   if (raw) {
     while (raw.available()) { int n = raw.read(buf, sizeof(buf)); out.write(buf, n); written += n; }
     raw.close();
   }
   out.close();
-  SD.remove(tmpPath);
-  Serial.printf("[WAV]  ✓ Final WAV: %u bytes\n", written + 44);
+  SD.remove("/tmp.raw");
+  Serial.printf("[WAV]  ✓ Saved — %u bytes audio, %u bytes total\n", written, written + 44);
 }
 
 /* ─────────────────────────────────────────
    HTTP UPLOAD
    ───────────────────────────────────────── */
 void sendToBackend(const char* path, uint32_t durationSecs) {
-  Serial.println("[HTTP] >> sendToBackend()");
+  Serial.println("[HTTP] Uploading to backend...");
 
-  if (WiFi.status() != WL_CONNECTED) { Serial.println("[HTTP] ✗ No WiFi"); return; }
+  if (WiFi.status() != WL_CONNECTED) { Serial.println("[HTTP] ✗ No WiFi — skipping upload"); return; }
 
   File f = SD.open(path);
-  if (!f) { Serial.println("[HTTP] ✗ Cannot open WAV"); return; }
-  Serial.printf("[HTTP] ✓ File size: %u bytes\n", f.size());
+  if (!f) { Serial.println("[HTTP] ✗ Cannot open WAV file"); return; }
+  Serial.printf("[HTTP] File: %s (%u bytes)\n", path, f.size());
 
   String filename = String(path);
   if (filename.startsWith("/")) filename = filename.substring(1);
@@ -162,7 +158,7 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
 
   WiFiClientSecure client;
   client.setInsecure();
-  Serial.printf("[HTTP] Connecting to %s:%d ...\n", BACKEND_HOST, BACKEND_PORT);
+  Serial.printf("[HTTP] Connecting to %s ...\n", BACKEND_HOST);
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
     Serial.println("[HTTP] ✗ Cannot reach backend");
     f.close(); return;
@@ -186,32 +182,34 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
     if (sent % (512 * 16) == 0) delay(1);
   }
   f.close();
-  Serial.printf("[HTTP] ✓ Streamed %u bytes\n", sent);
+  Serial.printf("[HTTP] ✓ Sent %u bytes\n", sent);
 
   client.print(durPart);
   client.print(endPart);
 
-  Serial.println("[HTTP] Waiting for response...");
+  Serial.println("[HTTP] Waiting for server response...");
   uint32_t t = millis();
   while (!client.available() && millis() - t < 30000) delay(10);
 
-  if (!client.available()) { Serial.println("[HTTP] ✗ No response in 30s"); client.stop(); return; }
+  if (!client.available()) { Serial.println("[HTTP] ✗ No response — timeout"); client.stop(); return; }
 
   String response = "";
   while (client.available()) response += (char)client.read();
   client.stop();
-  Serial.println("[HTTP] Response: " + response.substring(0, 120));
 
   if (response.indexOf("\"status\":\"ok\"") >= 0)
-    Serial.println("[HTTP] ✓ Upload successful");
-  else
-    Serial.println("[HTTP] ✗ Upload failed");
+    Serial.println("[HTTP] ✓ Upload successful!");
+  else {
+    Serial.println("[HTTP] ✗ Upload failed. Server said:");
+    Serial.println(response.substring(0, 200));
+  }
 }
 
 /* ─────────────────────────────────────────
-   I2S INIT — ESP32-C3 Mini
+   I2S INIT
    ───────────────────────────────────────── */
 void setupI2S() {
+  Serial.println("[I2S]  Installing driver...");
   i2s_config_t cfg = {
     .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate          = SAMPLE_RATE,
@@ -234,15 +232,34 @@ void setupI2S() {
   };
 
   esp_err_t err = i2s_driver_install(I2S_PORT, &cfg, 0, NULL);
-  if (err != ESP_OK) Serial.printf("[I2S]  ✗ Install error: %d\n", err);
-  else               Serial.println("[I2S]  ✓ Driver installed");
+  if (err != ESP_OK) { Serial.printf("[I2S]  ✗ Driver install failed: %d\n", err); return; }
 
   err = i2s_set_pin(I2S_PORT, &pins);
-  if (err != ESP_OK) Serial.printf("[I2S]  ✗ Pin error: %d\n", err);
-  else               Serial.println("[I2S]  ✓ Pins configured");
+  if (err != ESP_OK) { Serial.printf("[I2S]  ✗ Pin config failed: %d\n", err); return; }
 
   i2s_zero_dma_buffer(I2S_PORT);
-  Serial.println("[I2S]  ✓ Ready");
+  Serial.println("[I2S]  ✓ Microphone ready (WS=4, SCK=5, SD=3)");
+}
+
+/* ─────────────────────────────────────────
+   HEARTBEAT
+   ───────────────────────────────────────── */
+uint32_t lastServerPing = 0;
+#define  SERVER_PING_INTERVAL 2000
+
+void sendHeartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  WiFiClientSecure client;
+  client.setInsecure();
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
+  client.printf("POST /device/heartbeat HTTP/1.0\r\n");
+  client.printf("Host: %s\r\n",      BACKEND_HOST);
+  client.printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
+  client.print ("Content-Length: 0\r\n");
+  client.print ("Connection: close\r\n\r\n");
+  unsigned long t = millis();
+  while (client.connected() && millis() - t < 3000) delay(10);
+  client.stop();
 }
 
 /* ─────────────────────────────────────────
@@ -250,54 +267,48 @@ void setupI2S() {
    ───────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
-  delay(3000);  // wait for Serial Monitor to connect before printing anything
-  Serial.println("\n\n");
-  Serial.println("===========================================");
-  Serial.println("   VoiceNote AI — ESP32-C3 Mini");
-  Serial.println("===========================================");
+  delay(3000);  // wait so Serial Monitor connects before first print
+
+  Serial.println("\n\n==========================================");
+  Serial.println("      VoiceNote AI — ESP32-C3 Mini");
+  Serial.println("==========================================");
   Serial.println("[BOOT] ✓ ESP32-C3 started");
-  Serial.println("[BOOT] ✓ Serial monitor connected @ 115200");
 
   // ── Button ──
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  Serial.println("[BTN]  ✓ Button on GPIO9");
+  Serial.println("[BTN]  ✓ Button ready on GPIO9");
 
-  // ── SD Card — ESP32-C3 needs explicit SPI pins ──
-  Serial.println("[SD]   Initializing SD card...");
+  // ── SD Card ──
+  Serial.println("[SD]   Initializing SD card (CS=10, MOSI=7, MISO=2, SCK=6)...");
   SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
   delay(100);
 
   if (!SD.begin(PIN_SD_CS)) {
-    Serial.println("[SD]   ✗ FAIL — SD card init failed");
-    Serial.println("[SD]   Check: CS=GPIO10, MOSI=GPIO7, MISO=GPIO2, SCK=GPIO6");
-    Serial.println("[SD]   Check: card inserted, FAT32 formatted, 3.3V power");
+    Serial.println("[SD]   ✗ FAILED — check wiring and FAT32 format");
     while (1) {
       delay(3000);
-      Serial.println("[SD]   Retrying...");
-      if (SD.begin(PIN_SD_CS)) { Serial.println("[SD]   ✓ OK!"); break; }
+      Serial.println("[SD]   Retrying SD...");
+      if (SD.begin(PIN_SD_CS)) { Serial.println("[SD]   ✓ SD card OK on retry"); break; }
       Serial.println("[SD]   ✗ Still failing");
     }
+  } else {
+    Serial.println("[SD]   ✓ SD card OK");
   }
-  Serial.println("[SD]   ✓ SD card OK");
-
-  File testFile = SD.open("/sdtest.txt", FILE_WRITE);
-  if (testFile) { testFile.println("ok"); testFile.close(); SD.remove("/sdtest.txt"); }
-  Serial.println("[SD]   ✓ Read/write verified");
 
   // ── WiFi ──
-  Serial.printf("[WIFI] Connecting to %s\n", WIFI_SSID);
+  Serial.printf("[WIFI] Connecting to: %s\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500); Serial.print(".");
     if (millis() - wifiStart > 15000) {
-      Serial.println("\n[WIFI] ✗ Could not connect — upload will be skipped");
+      Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
       break;
     }
   }
   if (WiFi.status() == WL_CONNECTED)
-    Serial.printf("\n[WIFI] ✓ Connected — IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("\n[WIFI] ✓ Connected! IP: %s\n", WiFi.localIP().toString().c_str());
 
   // ── I2S Mic ──
   setupI2S();
@@ -331,32 +342,12 @@ void setup() {
 
   webServer.begin();
   if (WiFi.status() == WL_CONNECTED)
-    Serial.printf("[WEB]  ✓ Local UI: http://%s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[WEB]  ✓ Local player: http://%s\n", WiFi.localIP().toString().c_str());
 
-  Serial.println("===========================================");
-  Serial.println("[READY] Press button to record");
-  Serial.println("===========================================");
-}
-
-/* ─────────────────────────────────────────
-   HEARTBEAT
-   ───────────────────────────────────────── */
-uint32_t lastServerPing = 0;
-#define  SERVER_PING_INTERVAL 2000
-
-void sendHeartbeat() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  WiFiClientSecure client;
-  client.setInsecure();
-  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
-  client.printf("POST /device/heartbeat HTTP/1.0\r\n");
-  client.printf("Host: %s\r\n",      BACKEND_HOST);
-  client.printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
-  client.print ("Content-Length: 0\r\n");
-  client.print ("Connection: close\r\n\r\n");
-  unsigned long t = millis();
-  while (client.connected() && millis() - t < 3000) delay(10);
-  client.stop();
+  Serial.println("==========================================");
+  Serial.println("[READY] Press button once to start recording");
+  Serial.println("[READY] Press button again to stop & upload");
+  Serial.println("==========================================");
 }
 
 /* ─────────────────────────────────────────
@@ -380,21 +371,21 @@ void loop() {
       sprintf(currentFile, "/REC%03u.wav", fileIndex++);
       wavFile = SD.open(currentFile, FILE_WRITE);
       if (!wavFile) {
-        Serial.println("[REC]  ✗ Cannot open file on SD");
+        Serial.println("[REC]  ✗ Cannot create file on SD card");
       } else {
         bytesWritten = 0;
         recStartMs   = millis();
         writeWavHeader(wavFile);
         recording = true;
-        Serial.printf("[REC]  ✓ Recording → %s\n", currentFile);
+        Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
     } else {
       // ── STOP ──
       recording = false;
       uint32_t dur = (millis() - recStartMs) / 1000;
-      Serial.printf("[REC]  ✓ Stopped — %us\n", dur);
       wavFile.flush();
       wavFile.close();
+      Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
       finalizeWav(currentFile);
       sendToBackend(currentFile, dur);
     }
@@ -412,7 +403,7 @@ void loop() {
       static uint32_t lastWarn = 0;
       if (millis() - lastWarn > 3000) {
         lastWarn = millis();
-        Serial.println("[I2S]  ✗ No data — check mic wiring");
+        Serial.println("[I2S]  ✗ No audio data — check mic wiring");
       }
     }
 
