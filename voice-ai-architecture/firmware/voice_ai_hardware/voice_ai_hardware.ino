@@ -310,32 +310,29 @@ void setup() {
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   Serial.println("[BTN]  ✓ Button configured");
 
-  // ── SD Card ──
-  Serial.println("[SD]   Initializing SD card...");
-  Serial.printf("[SD]   CS pin = GPIO%d\n", PIN_SD_CS);
-  Serial.printf("[SD]   SPI: MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18\n");
+  // ── SD Card SPI test ──
+  Serial.println("[SD]   Testing SPI bus before SD init...");
   pinMode(PIN_SD_CS, OUTPUT);
   digitalWrite(PIN_SD_CS, HIGH);
+  // Check MISO pin — if module is alive it should NOT be stuck at one level
+  pinMode(19, INPUT);
+  int miso = digitalRead(19);
+  Serial.printf("[SD]   MISO (GPIO19) reads: %s\n", miso ? "HIGH" : "LOW");
+  Serial.printf("[SD]   If MISO is always HIGH or always LOW → module likely dead\n");
   delay(100);
+
+  Serial.println("[SD]   Initializing SD card...");
   if (!SD.begin(PIN_SD_CS)) {
-    uint8_t cardType = SD.cardType();
     Serial.println("[SD]   ✗ FAIL — SD card init failed");
-    Serial.printf("[SD]   Card type code: %d\n", cardType);
-    Serial.println("[SD]   Checklist:");
-    Serial.println("[SD]     1. Card inserted firmly?");
-    Serial.println("[SD]     2. Formatted as FAT32?");
-    Serial.println("[SD]     3. VCC = 3.3V (not 5V)?");
-    Serial.println("[SD]     4. CS=GPIO5, MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18");
-    Serial.println("[SD]     5. Card size <= 32GB?");
-    Serial.println("[SD]   Retrying every 3 seconds...");
+    Serial.println("[SD]   Likely causes:");
+    Serial.println("[SD]     → Module is fried (replace it)");
+    Serial.println("[SD]     → SD card not FAT32");
+    Serial.println("[SD]     → Card > 32GB");
     while (1) {
       delay(3000);
       Serial.println("[SD]   Retrying...");
-      if (SD.begin(PIN_SD_CS)) {
-        Serial.println("[SD]   ✓ SD card OK on retry!");
-        break;
-      }
-      Serial.println("[SD]   ✗ Still failing");
+      if (SD.begin(PIN_SD_CS)) { Serial.println("[SD]   ✓ OK on retry!"); break; }
+      Serial.println("[SD]   ✗ Still failing — replace the module");
     }
   }
   Serial.println("[SD]   ✓ SD card OK");
