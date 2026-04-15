@@ -422,8 +422,8 @@ void loop() {
     }
 
     for (size_t i = 0; i < br / 4; i++) {
-      // INMP441 on C3: 24-bit data left-justified in 32-bit word, shift right by 8
-      int16_t s = (int16_t)(buf[i] >> 8);
+      // INMP441: 24-bit audio left-justified in 32-bit word → shift right 14 to get 16-bit
+      int16_t s = (int16_t)((int32_t)buf[i] >> 14);
       wavFile.write((uint8_t*)&s, 2);
       bytesWritten += 2;
     }
