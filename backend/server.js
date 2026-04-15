@@ -408,14 +408,42 @@ app.get("/recordings/:id/audio", auth, async (req, res) => {
   try {
     const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
     if (!recording) return res.status(404).json({ error: "Not found" });
-    const { Body, ContentType, ContentLength } = await s3.send(
+
+    const { Body } = await s3.send(
       new GetObjectCommand({ Bucket: BUCKET, Key: recording.filename })
     );
-    res.setHeader("Content-Type", getContentType(recording.filename));
-    if (ContentLength) res.setHeader("Content-Length", ContentLength);
-    res.setHeader("Accept-Ranges", "bytes");
-    Body.pipe(res);
+
+    // Buffer the full file so Express can serve range requests (needed for audio seeking)
+    const chunks = [];
+    for await (const chunk of Body) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+
+    const contentType = getContentType(recording.filename);
+    const total = buffer.length;
+    const rangeHeader = req.headers.range;
+
+    if (rangeHeader) {
+      const [startStr, endStr] = rangeHeader.replace(/bytes=/, "").split("-");
+      const start = parseInt(startStr, 10);
+      const end   = endStr ? parseInt(endStr, 10) : total - 1;
+      if (start >= total || end >= total) {
+        res.status(416).setHeader("Content-Range", `bytes */${total}`).end();
+        return;
+      }
+      res.status(206);
+      res.setHeader("Content-Range",  `bytes ${start}-${end}/${total}`);
+      res.setHeader("Content-Length", end - start + 1);
+      res.setHeader("Content-Type",   contentType);
+      res.setHeader("Accept-Ranges",  "bytes");
+      res.end(buffer.slice(start, end + 1));
+    } else {
+      res.setHeader("Content-Type",   contentType);
+      res.setHeader("Content-Length", total);
+      res.setHeader("Accept-Ranges",  "bytes");
+      res.end(buffer);
+    }
   } catch (err) {
+    console.error("❌ Audio proxy:", err);
     res.status(500).json({ error: err.message });
   }
 });
