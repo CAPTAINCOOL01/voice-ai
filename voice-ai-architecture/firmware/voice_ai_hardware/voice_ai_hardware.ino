@@ -247,11 +247,14 @@ void sendHeartbeat() {
   WiFiClientSecure client;
   client.setInsecure();
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
+  String body = recording ? "{\"recording\":true}" : "{\"recording\":false}";
   client.printf("POST /device/heartbeat HTTP/1.0\r\n");
-  client.printf("Host: %s\r\n",      BACKEND_HOST);
-  client.printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
-  client.print ("Content-Length: 0\r\n");
+  client.printf("Host: %s\r\n",         BACKEND_HOST);
+  client.printf("X-Api-Key: %s\r\n",    ESP32_API_KEY);
+  client.printf("Content-Type: application/json\r\n");
+  client.printf("Content-Length: %d\r\n", body.length());
   client.print ("Connection: close\r\n\r\n");
+  client.print(body);
   unsigned long t = millis();
   while (client.connected() && millis() - t < 3000) delay(10);
   client.stop();

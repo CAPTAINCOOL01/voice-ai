@@ -1041,15 +1041,18 @@ export default function App() {
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
-  // Poll device status every 10 seconds
+  const [deviceRecording, setDeviceRecording] = useState(false);
+
+  // Poll device status every 2 seconds
   useEffect(() => {
     const checkDevice = async () => {
       try {
         const res  = await authFetch(`${API}/device/status`);
         const data = await res.json();
         setDeviceOnline(data.online);
+        setDeviceRecording(data.recording || false);
         setDeviceLastSeen(data.lastSeen);
-      } catch { setDeviceOnline(false); }
+      } catch { setDeviceOnline(false); setDeviceRecording(false); }
     };
     checkDevice();
     const interval = setInterval(checkDevice, 2000);
@@ -1217,13 +1220,27 @@ export default function App() {
                 ))}
               </div>
             )}
-            <div title={deviceOnline ? `Device online · Last seen ${deviceLastSeen ? new Date(deviceLastSeen).toLocaleTimeString() : "just now"}` : deviceLastSeen ? `Device offline · Last seen ${new Date(deviceLastSeen).toLocaleTimeString()}` : "Device never connected"}
-              style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color: deviceOnline ? "#4ade80" : "#52525b", cursor:"default" }}>
-              <span style={{ width:7, height:7, borderRadius:"50%",
-                background: deviceOnline ? "#4ade80" : "#3f3f46",
-                animation: deviceOnline ? "breathe 2s ease-in-out infinite" : "none",
-                display:"inline-block", transition:"background 0.5s" }} />
-              {deviceOnline ? "Live" : "Offline"}
+            <div title={
+                deviceRecording ? "ESP32 is recording right now" :
+                deviceOnline    ? `Device online · Last seen ${deviceLastSeen ? new Date(deviceLastSeen).toLocaleTimeString() : "just now"}` :
+                deviceLastSeen  ? `Device offline · Last seen ${new Date(deviceLastSeen).toLocaleTimeString()}` :
+                "Device never connected"
+              }
+              style={{
+                display:"flex", alignItems:"center", gap:6, fontSize:11, cursor:"default",
+                padding:"4px 10px", borderRadius:999,
+                background: deviceRecording ? "rgba(239,68,68,0.12)" : deviceOnline ? "rgba(74,222,128,0.08)" : "transparent",
+                border: deviceRecording ? "1px solid rgba(239,68,68,0.3)" : deviceOnline ? "1px solid rgba(74,222,128,0.2)" : "1px solid #27272a",
+                transition:"all 0.4s",
+                color: deviceRecording ? "#f87171" : deviceOnline ? "#4ade80" : "#52525b",
+              }}>
+              <span style={{
+                width:7, height:7, borderRadius:"50%", display:"inline-block",
+                transition:"background 0.4s",
+                background: deviceRecording ? "#ef4444" : deviceOnline ? "#4ade80" : "#3f3f46",
+                animation: deviceRecording ? "breathe 1s ease-in-out infinite" : deviceOnline ? "breathe 2s ease-in-out infinite" : "none",
+              }} />
+              {deviceRecording ? "Recording" : deviceOnline ? "Live" : "Offline"}
             </div>
             <a href="/app/settings" style={{
               background:"none", border:"1px solid #27272a", borderRadius:8,
