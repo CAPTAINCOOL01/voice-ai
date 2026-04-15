@@ -406,21 +406,19 @@ void loop() {
   if (recording) {
     int32_t buf[256];
     size_t br = 0;
-    i2s_read(I2S_PORT, buf, sizeof(buf), &br, pdMS_TO_TICKS(10));
+    i2s_read(I2S_PORT, buf, sizeof(buf), &br, pdMS_TO_TICKS(100));
 
-    if (br == 0) {
-      static uint32_t lastWarn = 0;
-      if (millis() - lastWarn > 3000) {
-        lastWarn = millis();
-        Serial.println("[I2S]  ✗ No audio data — check INMP441 wiring");
-      }
-    }
-
-    // Log first read so we can confirm data is flowing
     static bool firstRead = true;
     if (firstRead && br > 0) {
       firstRead = false;
-      Serial.printf("[I2S]  ✓ Audio flowing — first read: %d bytes, sample[0]=%d\n", br, buf[0]);
+      Serial.printf("[I2S]  ✓ Audio flowing — sample[0]=%d\n", buf[0]);
+    }
+
+    // Log bytes captured every 5 seconds
+    static uint32_t lastLog = 0;
+    if (millis() - lastLog > 5000) {
+      lastLog = millis();
+      Serial.printf("[REC]  Recording... %u bytes so far\n", bytesWritten);
     }
 
     for (size_t i = 0; i < br / 4; i++) {
