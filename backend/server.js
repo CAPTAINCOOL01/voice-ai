@@ -136,7 +136,8 @@ async function auth(req, res, next) {
   if (apiKey) {
     // Check global ESP32 key from env — attach admin user so req.user._id exists
     if (ESP32_KEY && apiKey === ESP32_KEY) {
-      req.user = await User.findOne({ provider: "local" }) || await User.findOne();
+      req.user = await User.findOne({ username: APP_USER }) || await User.findOne({ provider: "local" }) || await User.findOne();
+      if (!req.user) return res.status(500).json({ error: "No user found for ESP32 key" });
       return next();
     }
     // Check per-user API keys in DB

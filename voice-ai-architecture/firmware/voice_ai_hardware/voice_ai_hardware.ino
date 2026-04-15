@@ -26,8 +26,6 @@
 #define PIN_I2S_SD   33   // INMP441 SD  (DATA)
 #define PIN_SD_CS     5   // MicroSD CS  (default SPI CS)
 #define PIN_BUTTON   12   // Tactile button (INPUT_PULLUP → GND)
-#define PIN_LED       2   // Recording LED (330Ω → GND) — onboard LED on most ESP32 boards
-#define PIN_BATT     34   // Battery ADC: VBAT → 100kΩ → GPIO34 → 100kΩ → GND
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -308,11 +306,9 @@ void setup() {
   Serial.println("[BOOT] ESP32 Voice Recorder — starting up");
   Serial.println("===========================================");
 
-  // ── LED + Button ──
-  pinMode(PIN_LED,    OUTPUT);
+  // ── Button ──
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  digitalWrite(PIN_LED, LOW);
-  Serial.println("[BTN]  ✓ Button + LED configured");
+  Serial.println("[BTN]  ✓ Button configured");
 
   // ── SD Card ──
   Serial.println("[SD]   Initializing SD card...");
@@ -453,13 +449,11 @@ void loop() {
           recStartMs   = millis();
           writeWavHeader(wavFile);
           recording = true;
-          digitalWrite(PIN_LED, HIGH);  // LED ON while recording
           Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
         }
       } else {
         // ── STOP ──
         recording = false;
-        digitalWrite(PIN_LED, LOW);   // LED OFF when stopped
         uint32_t dur = (millis() - recStartMs) / 1000;
         Serial.printf("[REC]  ✓ Stopped — %us recorded\n", dur);
         wavFile.flush();
