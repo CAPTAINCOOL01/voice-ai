@@ -77,56 +77,32 @@ void writeWavHeader(File &f) {
 void finalizeWav(const char* path) {
   Serial.printf("[WAV]  Finalizing %s ...\n", path);
 
+  // Give SD card time to commit all buffered writes
+  delay(300);
+
+  // Check actual file size on SD
   File check = SD.open(path);
   if (!check) { Serial.println("[WAV]  ✗ Cannot open file"); return; }
   uint32_t fileSize = check.size();
   check.close();
+  Serial.printf("[WAV]  SD file size: %u bytes\n", fileSize);
 
-  if (fileSize < 44) { Serial.println("[WAV]  ✗ File too small — no audio captured"); return; }
+  if (fileSize < 100) {
+    Serial.println("[WAV]  ✗ File too small — SD did not flush data properly");
+    return;
+  }
 
   uint32_t dataSize = fileSize - 44;
   uint32_t riffSize = fileSize - 8;
 
-  // Copy audio data to temp file, then rebuild with correct header
-  File src = SD.open(path);
-  src.seek(44);
-  File tmp = SD.open("/tmp.raw", FILE_WRITE);
-  if (!tmp) { src.close(); Serial.println("[WAV]  ✗ Cannot create temp file"); return; }
+  // Update the 8 header bytes in-place using r+ (no copy, no delete, no data loss)
+  File f = SD.open(path, "r+");
+  if (!f) { Serial.println("[WAV]  ✗ Cannot open in r+ mode"); return; }
+  f.seek(4);  f.write((uint8_t*)&riffSize, 4);
+  f.seek(40); f.write((uint8_t*)&dataSize, 4);
+  f.close();
 
-  uint8_t buf[512];
-  uint32_t copied = 0;
-  while (src.available()) { int n = src.read(buf, sizeof(buf)); tmp.write(buf, n); copied += n; }
-  src.close(); tmp.close();
-
-  SD.remove(path);
-  File out = SD.open(path, FILE_WRITE);
-  if (!out) { Serial.println("[WAV]  ✗ Cannot recreate WAV"); return; }
-
-  uint32_t fmtSize  = 16;
-  uint16_t audioFmt = 1;
-  uint16_t channels = CHANNELS;
-  uint32_t rate     = SAMPLE_RATE;
-  uint16_t bits     = BITS_PER_SAMPLE;
-  uint32_t byteRate = rate * channels * (bits / 8);
-  uint16_t align    = channels * (bits / 8);
-
-  out.write((const uint8_t*)"RIFF", 4); out.write((uint8_t*)&riffSize, 4);
-  out.write((const uint8_t*)"WAVE", 4);
-  out.write((const uint8_t*)"fmt ", 4); out.write((uint8_t*)&fmtSize,  4);
-  out.write((uint8_t*)&audioFmt, 2);    out.write((uint8_t*)&channels, 2);
-  out.write((uint8_t*)&rate,     4);    out.write((uint8_t*)&byteRate, 4);
-  out.write((uint8_t*)&align,    2);    out.write((uint8_t*)&bits,     2);
-  out.write((const uint8_t*)"data", 4); out.write((uint8_t*)&dataSize, 4);
-
-  File raw = SD.open("/tmp.raw");
-  uint32_t written = 0;
-  if (raw) {
-    while (raw.available()) { int n = raw.read(buf, sizeof(buf)); out.write(buf, n); written += n; }
-    raw.close();
-  }
-  out.close();
-  SD.remove("/tmp.raw");
-  Serial.printf("[WAV]  ✓ Saved — %u bytes audio, %u bytes total\n", written, written + 44);
+  Serial.printf("[WAV]  ✓ Header updated — %u bytes audio, %u bytes total\n", dataSize, fileSize);
 }
 
 /* ─────────────────────────────────────────
