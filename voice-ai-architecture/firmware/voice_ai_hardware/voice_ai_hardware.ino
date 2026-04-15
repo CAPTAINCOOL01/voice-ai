@@ -214,7 +214,7 @@ void setupI2S() {
     .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate          = SAMPLE_RATE,
     .bits_per_sample      = I2S_BITS_PER_SAMPLE_32BIT,
-    .channel_format       = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .channel_format       = I2S_CHANNEL_FMT_ONLY_RIGHT,  // INMP441 L/R=GND → right channel
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count        = 8,
@@ -404,7 +404,7 @@ void loop() {
 
   // ── Capture audio samples ──
   if (recording) {
-    uint32_t buf[256];
+    int32_t buf[256];
     size_t br = 0;
     i2s_read(I2S_PORT, buf, sizeof(buf), &br, pdMS_TO_TICKS(10));
 
@@ -412,12 +412,20 @@ void loop() {
       static uint32_t lastWarn = 0;
       if (millis() - lastWarn > 3000) {
         lastWarn = millis();
-        Serial.println("[I2S]  ✗ No audio data — check mic wiring");
+        Serial.println("[I2S]  ✗ No audio data — check INMP441 wiring");
       }
     }
 
+    // Log first read so we can confirm data is flowing
+    static bool firstRead = true;
+    if (firstRead && br > 0) {
+      firstRead = false;
+      Serial.printf("[I2S]  ✓ Audio flowing — first read: %d bytes, sample[0]=%d\n", br, buf[0]);
+    }
+
     for (size_t i = 0; i < br / 4; i++) {
-      int16_t s = (int16_t)((int32_t)buf[i] >> 14);
+      // INMP441 on C3: 24-bit data left-justified in 32-bit word, shift right by 8
+      int16_t s = (int16_t)(buf[i] >> 8);
       wavFile.write((uint8_t*)&s, 2);
       bytesWritten += 2;
     }
