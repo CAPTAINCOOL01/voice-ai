@@ -250,10 +250,13 @@ void setupI2S() {
    ───────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(3000);  // wait for Serial Monitor to connect before printing anything
+  Serial.println("\n\n");
   Serial.println("===========================================");
-  Serial.println("[BOOT] VoiceNote AI — ESP32-C3 Mini");
+  Serial.println("   VoiceNote AI — ESP32-C3 Mini");
   Serial.println("===========================================");
+  Serial.println("[BOOT] ✓ ESP32-C3 started");
+  Serial.println("[BOOT] ✓ Serial monitor connected @ 115200");
 
   // ── Button ──
   pinMode(PIN_BUTTON, INPUT_PULLUP);
