@@ -17,16 +17,18 @@
 #define ESP32_API_KEY "replace-with-another-random-key"
 
 /* ─────────────────────────────────────────
-   PINS — ESP32 38-pin
+   PINS — ESP32-C3 Mini
    ───────────────────────────────────────── */
-#define PIN_I2S_WS   25   // INMP441 WS  (LRCK)
-#define PIN_I2S_SCK  14   // INMP441 SCK (BCLK)
-#define PIN_I2S_SD   32   // INMP441 SD  (DATA)
+#define PIN_I2S_WS    4   // INMP441 WS  (LRCK)
+#define PIN_I2S_SCK   5   // INMP441 SCK (BCLK)
+#define PIN_I2S_SD    3   // INMP441 SD  (DATA)
 
-#define PIN_SD_CS     5   // MicroSD CS  (default VSPI CS)
-// MOSI=23, MISO=19, SCK=18 — hardware VSPI defaults, no SPI.begin() needed
+#define PIN_SD_CS    10   // MicroSD CS
+#define PIN_SD_MOSI   7   // MicroSD MOSI
+#define PIN_SD_MISO   2   // MicroSD MISO
+#define PIN_SD_SCK    6   // MicroSD SCK
 
-#define PIN_BUTTON   13   // Tactile button (INPUT_PULLUP → GND)
+#define PIN_BUTTON    9   // Tactile button (INPUT_PULLUP → GND)
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -145,7 +147,7 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   if (filename.startsWith("/")) filename = filename.substring(1);
   if (!filename.endsWith(".wav")) filename += ".wav";
 
-  String boundary = "----ESP32Boundary";
+  String boundary = "----ESP32C3Boundary";
   String filePart =
     "--" + boundary + "\r\n"
     "Content-Disposition: form-data; name=\"audio\"; filename=\"" + filename + "\"\r\n"
@@ -207,7 +209,7 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
 }
 
 /* ─────────────────────────────────────────
-   I2S INIT — ESP32 38-pin
+   I2S INIT — ESP32-C3 Mini
    ───────────────────────────────────────── */
 void setupI2S() {
   i2s_config_t cfg = {
@@ -224,6 +226,7 @@ void setupI2S() {
     .fixed_mclk           = 0
   };
   i2s_pin_config_t pins = {
+    .mck_io_num   = I2S_PIN_NO_CHANGE,
     .bck_io_num   = PIN_I2S_SCK,
     .ws_io_num    = PIN_I2S_WS,
     .data_out_num = I2S_PIN_NO_CHANGE,
@@ -249,22 +252,21 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("===========================================");
-  Serial.println("[BOOT] VoiceNote AI — ESP32 38-pin");
+  Serial.println("[BOOT] VoiceNote AI — ESP32-C3 Mini");
   Serial.println("===========================================");
 
   // ── Button ──
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  Serial.println("[BTN]  ✓ Button on GPIO13");
-  Serial.println("[I2S]  WS=GPIO25, SCK=GPIO14, SD=GPIO32");
+  Serial.println("[BTN]  ✓ Button on GPIO9");
 
-  // ── SD Card — ESP32 uses VSPI hardware defaults ──
+  // ── SD Card — ESP32-C3 needs explicit SPI pins ──
   Serial.println("[SD]   Initializing SD card...");
+  SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
   delay(100);
 
   if (!SD.begin(PIN_SD_CS)) {
     Serial.println("[SD]   ✗ FAIL — SD card init failed");
-    Serial.println("[SD]   Check: CS=GPIO5, MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18");
-    Serial.println("[SD]   Check: I2S WS=GPIO25, SCK=GPIO14, SD=GPIO32");
+    Serial.println("[SD]   Check: CS=GPIO10, MOSI=GPIO7, MISO=GPIO2, SCK=GPIO6");
     Serial.println("[SD]   Check: card inserted, FAT32 formatted, 3.3V power");
     while (1) {
       delay(3000);
