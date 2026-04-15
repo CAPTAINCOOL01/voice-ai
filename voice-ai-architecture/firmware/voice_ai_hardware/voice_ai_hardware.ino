@@ -312,10 +312,31 @@ void setup() {
 
   // ── SD Card ──
   Serial.println("[SD]   Initializing SD card...");
+  Serial.printf("[SD]   CS pin = GPIO%d\n", PIN_SD_CS);
+  Serial.printf("[SD]   SPI: MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18\n");
+  pinMode(PIN_SD_CS, OUTPUT);
+  digitalWrite(PIN_SD_CS, HIGH);
+  delay(100);
   if (!SD.begin(PIN_SD_CS)) {
+    uint8_t cardType = SD.cardType();
     Serial.println("[SD]   ✗ FAIL — SD card init failed");
-    Serial.println("[SD]   Check: card inserted? CS pin correct? SPI wiring?");
-    while (1) delay(1000);
+    Serial.printf("[SD]   Card type code: %d\n", cardType);
+    Serial.println("[SD]   Checklist:");
+    Serial.println("[SD]     1. Card inserted firmly?");
+    Serial.println("[SD]     2. Formatted as FAT32?");
+    Serial.println("[SD]     3. VCC = 3.3V (not 5V)?");
+    Serial.println("[SD]     4. CS=GPIO5, MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18");
+    Serial.println("[SD]     5. Card size <= 32GB?");
+    Serial.println("[SD]   Retrying every 3 seconds...");
+    while (1) {
+      delay(3000);
+      Serial.println("[SD]   Retrying...");
+      if (SD.begin(PIN_SD_CS)) {
+        Serial.println("[SD]   ✓ SD card OK on retry!");
+        break;
+      }
+      Serial.println("[SD]   ✗ Still failing");
+    }
   }
   Serial.println("[SD]   ✓ SD card OK");
 
