@@ -14,7 +14,7 @@
 #define BACKEND_HOST  "voice-ai-da3b.onrender.com"
 #define BACKEND_PORT  443
 #define BACKEND_PATH  "/save"
-#define ESP32_API_KEY "replace-with-another-random-key"
+#define ESP32_API_KEY "47dd2cc5700acd20f3f90b9cc7e6821014abf93c41d32c76e00a446ad80cf267"
 
 /* ─────────────────────────────────────────
    PINS — ESP32-C3 Mini
@@ -281,15 +281,24 @@ void setup() {
   // ── SD Card ──
   Serial.println("[SD]   Initializing SD card (CS=10, MOSI=7, MISO=2, SCK=6)...");
   SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-  delay(100);
+  delay(200);
 
-  if (!SD.begin(PIN_SD_CS)) {
-    Serial.println("[SD]   ✗ FAILED — check wiring and FAT32 format");
+  // Try at 4MHz first (more compatible with cheap modules), then 25MHz
+  bool sdOk = SD.begin(PIN_SD_CS, SPI, 4000000);
+  if (!sdOk) {
+    Serial.println("[SD]   ✗ FAILED at 4MHz — check wiring:");
+    Serial.println("[SD]   VCC=5V, GND, CS=GPIO10, MOSI=GPIO7, MISO=GPIO2, SCK=GPIO6");
+    Serial.println("[SD]   Also check: FAT32 format, card ≤32GB, card fully inserted");
+    Serial.println("[SD]   Common fix: swap MOSI and MISO wires");
     while (1) {
       delay(3000);
-      Serial.println("[SD]   Retrying SD...");
-      if (SD.begin(PIN_SD_CS)) { Serial.println("[SD]   ✓ SD card OK on retry"); break; }
-      Serial.println("[SD]   ✗ Still failing");
+      Serial.println("[SD]   Retrying...");
+      if (SD.begin(PIN_SD_CS, SPI, 4000000)) {
+        Serial.println("[SD]   ✓ SD card OK on retry");
+        sdOk = true;
+        break;
+      }
+      Serial.println("[SD]   ✗ Still failing — check wiring");
     }
   } else {
     Serial.println("[SD]   ✓ SD card OK");
