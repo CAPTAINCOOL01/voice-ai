@@ -19,7 +19,7 @@
 /* ─────────────────────────────────────────
    PINS — ESP32 38-pin
    ───────────────────────────────────────── */
-#define PIN_I2S_WS   15   // INMP441 WS  (LRCK)
+#define PIN_I2S_WS   25   // INMP441 WS  (LRCK)
 #define PIN_I2S_SCK  14   // INMP441 SCK (BCLK)
 #define PIN_I2S_SD   32   // INMP441 SD  (DATA)
 
@@ -255,6 +255,7 @@ void setup() {
   // ── Button ──
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   Serial.println("[BTN]  ✓ Button on GPIO13");
+  Serial.println("[I2S]  WS=GPIO25, SCK=GPIO14, SD=GPIO32");
 
   // ── SD Card — ESP32 uses VSPI hardware defaults ──
   Serial.println("[SD]   Initializing SD card...");
@@ -263,6 +264,7 @@ void setup() {
   if (!SD.begin(PIN_SD_CS)) {
     Serial.println("[SD]   ✗ FAIL — SD card init failed");
     Serial.println("[SD]   Check: CS=GPIO5, MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18");
+    Serial.println("[SD]   Check: I2S WS=GPIO25, SCK=GPIO14, SD=GPIO32");
     Serial.println("[SD]   Check: card inserted, FAT32 formatted, 3.3V power");
     while (1) {
       delay(3000);
