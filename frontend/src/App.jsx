@@ -1130,7 +1130,10 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || "Analysis failed");
       setRecordings(prev => prev.map(r => r._id === id ? data : r));
       if (activeRec?.rec._id === id) setActiveRec(prev => ({ ...prev, rec: data }));
-    } catch (err) { console.error("Analyse error:", err); }
+    } catch (err) {
+      console.error("Analyse error:", err);
+      alert("Analysis failed: " + err.message);
+    }
     finally { setAnalysingId(null); }
   };
 

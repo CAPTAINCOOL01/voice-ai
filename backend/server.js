@@ -360,14 +360,25 @@ app.post("/upload", auth, upload.single("audio"), async (req, res) => {
 app.post("/save", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
   try {
+    const fileSizeBytes = fs.statSync(localPath).size;
     const duration = parseFloat(req.body.duration) || 0;
-    const fileUrl  = await uploadToR2(localPath, filename, getContentType(filename));
-    const title    = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
+    console.log(`📥 /save received: ${filename}, size=${fileSizeBytes} bytes, duration=${duration}s, user=${req.user._id}`);
+
+    // Validate minimum file size (at least 44 bytes header + some audio)
+    if (fileSizeBytes < 1000) {
+      console.warn(`⚠️  File too small (${fileSizeBytes} bytes) — likely empty recording`);
+    }
+
+    const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
+    console.log(`☁️  Uploaded to R2: ${filename}`);
+
+    const title = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
     const recording = await Recording.create({
       userId: req.user._id,
       filename, fileUrl, transcript: "", title,
       summary: "", tags: [], actionItems: [], duration,
     });
+    console.log(`✅ Saved to DB: ${recording._id}, filename=${filename}`);
     res.json({ status: "ok", recording });
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
@@ -381,14 +392,42 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
   try {
     const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
     if (!recording) return res.status(404).json({ error: "Not found" });
+
+    console.log(`🔍 Analyse: ${recording._id}, filename=${recording.filename}`);
+
+    // Step 1: Download from R2
     const tmpPath = path.join(os.tmpdir(), recording.filename);
     await downloadFromR2(recording.filename, tmpPath);
+    const dlSize = fs.statSync(tmpPath).size;
+    console.log(`📥 Downloaded from R2: ${dlSize} bytes`);
+
+    if (dlSize < 1000) {
+      fs.unlinkSync(tmpPath);
+      return res.status(400).json({ error: `Audio file too small (${dlSize} bytes) — recording may be empty` });
+    }
+
+    // Step 2: Check OpenAI key
+    if (!process.env.OPENAI_API_KEY) {
+      fs.unlinkSync(tmpPath);
+      return res.status(500).json({ error: "OPENAI_API_KEY not set on server" });
+    }
+
+    // Step 3: Transcribe with Whisper
+    console.log(`🎙️  Sending ${dlSize} bytes to Whisper...`);
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tmpPath), model: "whisper-1",
     });
     const text = transcription.text;
     if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-    const parsed  = await generateNotes(text);
+    console.log(`✅ Whisper transcript (${text.length} chars): "${text.substring(0, 80)}..."`);
+
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({ error: "Whisper returned empty transcript — audio may be silence or noise" });
+    }
+
+    // Step 4: Generate notes
+    console.log(`🧠 Generating AI notes...`);
+    const parsed = await generateNotes(text);
     const updated = await Recording.findByIdAndUpdate(
       req.params.id,
       { transcript: text, title: parsed.title || recording.title, summary: parsed.summary || "",
@@ -396,9 +435,67 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
         actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [] },
       { new: true }
     );
+    console.log(`✅ Analysis complete for ${recording._id}`);
     res.json(updated);
   } catch (err) {
-    console.error("❌ Analyse:", err);
+    console.error("❌ Analyse error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /debug/recording/:id — check file at every stage ──
+app.get("/debug/recording/:id", auth, async (req, res) => {
+  try {
+    const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!recording) return res.status(404).json({ error: "Not found in DB" });
+
+    // Check R2
+    let r2Size = null, r2Error = null, wavHeaderValid = false;
+    try {
+      const { Body, ContentLength } = await s3.send(
+        new GetObjectCommand({ Bucket: BUCKET, Key: recording.filename })
+      );
+      // Read first 44 bytes to check WAV header
+      const chunks = [];
+      let read = 0;
+      for await (const chunk of Body) {
+        chunks.push(chunk);
+        read += chunk.length;
+        if (read >= 44) break;
+      }
+      const header = Buffer.concat(chunks).slice(0, 44);
+      wavHeaderValid = header.slice(0,4).toString() === "RIFF" && header.slice(8,12).toString() === "WAVE";
+      const sampleRate  = header.readUInt32LE(24);
+      const bitsPerSamp = header.readUInt16LE(34);
+      const channels    = header.readUInt16LE(22);
+      r2Size = ContentLength;
+      res.json({
+        db: {
+          id:       recording._id,
+          filename: recording.filename,
+          duration: recording.duration,
+          fileUrl:  recording.fileUrl,
+          hasTranscript: !!recording.transcript,
+        },
+        r2: {
+          exists:       true,
+          sizeBytes:    r2Size,
+          wavHeaderOk:  wavHeaderValid,
+          sampleRate,
+          bitsPerSample: bitsPerSamp,
+          channels,
+        },
+        openaiKeySet: !!process.env.OPENAI_API_KEY,
+      });
+    } catch (e) {
+      r2Error = e.message;
+      res.json({
+        db: { id: recording._id, filename: recording.filename, duration: recording.duration },
+        r2: { exists: false, error: r2Error },
+        openaiKeySet: !!process.env.OPENAI_API_KEY,
+      });
+    }
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
