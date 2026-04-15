@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <ESPAsyncWebServer.h>
 #include "driver/i2s.h"
+#include <FastLED.h>
 
 /* ─────────────────────────────────────────
    USER CONFIG
@@ -29,6 +30,15 @@
 #define PIN_SD_SCK    6   // MicroSD SCK
 
 #define PIN_BUTTON    9   // Tactile button (INPUT_PULLUP → GND)
+#define PIN_LED       8   // Onboard WS2812B RGB LED
+#define NUM_LEDS      1
+
+CRGB leds[NUM_LEDS];
+
+void setLed(CRGB color) {
+  leds[0] = color;
+  FastLED.show();
+}
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -180,11 +190,13 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   while (client.available()) response += (char)client.read();
   client.stop();
 
-  if (response.indexOf("\"status\":\"ok\"") >= 0)
+  if (response.indexOf("\"status\":\"ok\"") >= 0) {
     Serial.println("[HTTP] ✓ Upload successful!");
-  else {
+    setLed(CRGB::Green);  // back to green = ready
+  } else {
     Serial.println("[HTTP] ✗ Upload failed. Server said:");
     Serial.println(response.substring(0, 200));
+    setLed(CRGB::Green);  // still go back to green
   }
 }
 
@@ -250,6 +262,9 @@ void sendHeartbeat() {
    ───────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
+  FastLED.addLeds<WS2812B, PIN_LED, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(30);
+  setLed(CRGB::Black);  // off during boot
   delay(3000);  // wait so Serial Monitor connects before first print
 
   Serial.println("\n\n==========================================");
@@ -340,6 +355,7 @@ void setup() {
   Serial.println("[READY] Press button once to start recording");
   Serial.println("[READY] Press button again to stop & upload");
   Serial.println("==========================================");
+  setLed(CRGB::Green);  // green = ready
 }
 
 /* ─────────────────────────────────────────
@@ -372,11 +388,13 @@ void loop() {
         sdBufPos     = 0;
         writeWavHeader(wavFile);
         recording = true;
+        setLed(CRGB::Red);
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
     } else {
       // ── STOP ──
       recording = false;
+      setLed(CRGB::Black);  // off while saving/uploading
       uint32_t dur = (millis() - recStartMs) / 1000;
       // Flush remaining buffered samples to SD
       if (sdBufPos > 0) {
@@ -407,6 +425,8 @@ void loop() {
     if (millis() - lastLog > 5000) {
       lastLog = millis();
       Serial.printf("[REC]  Recording... %u bytes so far\n", bytesWritten);
+      // Flash red to show recording is active
+      setLed(CRGB::Black); delay(80); setLed(CRGB::Red);
     }
 
     for (size_t i = 0; i < br / 4; i++) {
