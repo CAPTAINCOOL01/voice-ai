@@ -49,6 +49,8 @@ uint32_t bytesWritten = 0;
 uint16_t fileIndex    = 0;
 uint32_t recStartMs   = 0;
 char     currentFile[20];
+bool     firstRead    = true;
+uint32_t lastLog      = 0;
 
 /* ─────────────────────────────────────────
    WAV HELPERS
@@ -384,6 +386,8 @@ void loop() {
       } else {
         bytesWritten = 0;
         recStartMs   = millis();
+        firstRead    = true;
+        lastLog      = millis();
         writeWavHeader(wavFile);
         recording = true;
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
@@ -408,14 +412,11 @@ void loop() {
     size_t br = 0;
     i2s_read(I2S_PORT, buf, sizeof(buf), &br, pdMS_TO_TICKS(100));
 
-    static bool firstRead = true;
     if (firstRead && br > 0) {
       firstRead = false;
       Serial.printf("[I2S]  ✓ Audio flowing — sample[0]=%d\n", buf[0]);
     }
 
-    // Log bytes captured every 5 seconds
-    static uint32_t lastLog = 0;
     if (millis() - lastLog > 5000) {
       lastLog = millis();
       Serial.printf("[REC]  Recording... %u bytes so far\n", bytesWritten);
