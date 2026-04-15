@@ -436,31 +436,29 @@ void loop() {
   bool btn = digitalRead(PIN_BUTTON);
 
   if (lastBtn == HIGH && btn == LOW) {
-    delay(20);
-    if (digitalRead(PIN_BUTTON) == LOW) {
-      if (!recording) {
-        // ── START ──
-        sprintf(currentFile, "/REC%03u.wav", fileIndex++);
-        wavFile = SD.open(currentFile, FILE_WRITE);
-        if (!wavFile) {
-          Serial.println("[REC]  ✗ FAIL — Cannot open file on SD");
-        } else {
-          bytesWritten = 0;
-          recStartMs   = millis();
-          writeWavHeader(wavFile);
-          recording = true;
-          Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
-        }
+    delay(15); // short settle — no recheck, works with quick taps
+    if (!recording) {
+      // ── START ──
+      sprintf(currentFile, "/REC%03u.wav", fileIndex++);
+      wavFile = SD.open(currentFile, FILE_WRITE);
+      if (!wavFile) {
+        Serial.println("[REC]  ✗ FAIL — Cannot open file on SD");
       } else {
-        // ── STOP ──
-        recording = false;
-        uint32_t dur = (millis() - recStartMs) / 1000;
-        Serial.printf("[REC]  ✓ Stopped — %us recorded\n", dur);
-        wavFile.flush();
-        wavFile.close();
-        finalizeWav(currentFile);
-        sendToBackend(currentFile, dur);
+        bytesWritten = 0;
+        recStartMs   = millis();
+        writeWavHeader(wavFile);
+        recording = true;
+        Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
+    } else {
+      // ── STOP ──
+      recording = false;
+      uint32_t dur = (millis() - recStartMs) / 1000;
+      Serial.printf("[REC]  ✓ Stopped — %us recorded\n", dur);
+      wavFile.flush();
+      wavFile.close();
+      finalizeWav(currentFile);
+      sendToBackend(currentFile, dur);
     }
   }
 
