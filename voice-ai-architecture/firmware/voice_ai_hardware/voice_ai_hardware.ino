@@ -20,17 +20,14 @@
 /* ─────────────────────────────────────────
    PINS
    ───────────────────────────────────────── */
-// ── ESP32-C3 Mini pin assignments ──────────────
-#define PIN_I2S_WS    4   // INMP441 WS  (LRCK)
-#define PIN_I2S_SCK   5   // INMP441 SCK (BCLK)
-#define PIN_I2S_SD    3   // INMP441 SD  (DATA)
-#define PIN_SD_CS    10   // MicroSD CS
-#define PIN_SD_MOSI   7   // MicroSD MOSI
-#define PIN_SD_MISO   2   // MicroSD MISO
-#define PIN_SD_SCK    6   // MicroSD SCK
-#define PIN_BUTTON    9   // Tactile button (INPUT_PULLUP → GND)
-#define PIN_LED       8   // Recording LED (330Ω → GND)
-#define PIN_BATT      1   // Battery ADC: VBAT → 100kΩ → GPIO1 → 100kΩ → GND
+// ── ESP32 (38-pin) pin assignments ─────────────
+#define PIN_I2S_WS   25   // INMP441 WS  (LRCK)
+#define PIN_I2S_SCK  26   // INMP441 SCK (BCLK)
+#define PIN_I2S_SD   33   // INMP441 SD  (DATA)
+#define PIN_SD_CS     5   // MicroSD CS  (default SPI CS)
+#define PIN_BUTTON   12   // Tactile button (INPUT_PULLUP → GND)
+#define PIN_LED       2   // Recording LED (330Ω → GND) — onboard LED on most ESP32 boards
+#define PIN_BATT     34   // Battery ADC: VBAT → 100kΩ → GPIO34 → 100kΩ → GND
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -317,9 +314,8 @@ void setup() {
   digitalWrite(PIN_LED, LOW);
   Serial.println("[BTN]  ✓ Button + LED configured");
 
-  // ── SD Card (explicit SPI pins for ESP32-C3) ──
+  // ── SD Card ──
   Serial.println("[SD]   Initializing SD card...");
-  SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
   if (!SD.begin(PIN_SD_CS)) {
     Serial.println("[SD]   ✗ FAIL — SD card init failed");
     Serial.println("[SD]   Check: card inserted? CS pin correct? SPI wiring?");
