@@ -51,7 +51,11 @@ uint32_t recStartMs   = 0;
 char     currentFile[20];
 bool     firstRead     = true;
 uint32_t lastLog       = 0;
-uint32_t lastFlush     = 0;
+
+// Write buffer — accumulate samples in RAM, write 4KB at a time to SD
+#define SD_WRITE_BUF 4096
+uint8_t  sdBuf[SD_WRITE_BUF];
+uint16_t sdBufPos = 0;
 
 /* ─────────────────────────────────────────
    WAV HELPERS
@@ -365,7 +369,7 @@ void loop() {
         recStartMs   = millis();
         firstRead    = true;
         lastLog      = millis();
-        lastFlush    = 0;
+        sdBufPos     = 0;
         writeWavHeader(wavFile);
         recording = true;
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
@@ -374,6 +378,11 @@ void loop() {
       // ── STOP ──
       recording = false;
       uint32_t dur = (millis() - recStartMs) / 1000;
+      // Flush remaining buffered samples to SD
+      if (sdBufPos > 0) {
+        wavFile.write(sdBuf, sdBufPos);
+        sdBufPos = 0;
+      }
       wavFile.flush();
       wavFile.close();
       Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
@@ -403,14 +412,15 @@ void loop() {
     for (size_t i = 0; i < br / 4; i++) {
       // INMP441: 24-bit audio left-justified in 32-bit word → shift right 14 to get 16-bit
       int16_t s = (int16_t)((int32_t)buf[i] >> 14);
-      wavFile.write((uint8_t*)&s, 2);
-      bytesWritten += 2;
-    }
+      sdBuf[sdBufPos++] = (uint8_t)(s & 0xFF);
+      sdBuf[sdBufPos++] = (uint8_t)(s >> 8);
 
-    // Flush to SD every 32KB (~1 second of audio) to prevent data loss on close
-    if (bytesWritten - lastFlush >= 32768) {
-      wavFile.flush();
-      lastFlush = bytesWritten;
+      // When 4KB buffer is full, write to SD in one efficient block
+      if (sdBufPos >= SD_WRITE_BUF) {
+        wavFile.write(sdBuf, SD_WRITE_BUF);
+        bytesWritten += SD_WRITE_BUF;
+        sdBufPos = 0;
+      }
     }
   }
 }
