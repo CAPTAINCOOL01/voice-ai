@@ -1094,24 +1094,49 @@ export default function App() {
 
   const [deviceRecording, setDeviceRecording] = useState(false);
 
-  // Poll device status every 3s
-  // Backend handles extended online window during recording (heartbeats pause on ESP32 during SD writes)
+  // Real-time device status via WebSocket
   useEffect(() => {
-    const checkDevice = async () => {
-      try {
-        const res  = await authFetch(`${API}/device/status`);
-        const data = await res.json();
-        setDeviceOnline(!!data.online);
-        setDeviceRecording(!!data.recording);
-        setDeviceLastSeen(data.lastSeen);
-      } catch {
-        setDeviceOnline(false);
-        setDeviceRecording(false);
-      }
-    };
-    checkDevice();
-    const interval = setInterval(checkDevice, 3000);
-    return () => clearInterval(interval);
+    const wsBase = API.replace(/^https/, "wss").replace(/^http/, "ws");
+    const token  = getToken();
+    let ws, retryTimer;
+
+    function applyState(state) {
+      setDeviceOnline(state === "online" || state === "recording");
+      setDeviceRecording(state === "recording");
+    }
+
+    function connect() {
+      ws = new WebSocket(`${wsBase}/ws?token=${token}`);
+
+      ws.onopen = async () => {
+        // Also fetch REST fallback to get lastSeen on connect
+        try {
+          const r = await authFetch(`${API}/device/status`);
+          const d = await r.json();
+          applyState(d.state);
+          setDeviceLastSeen(d.lastSeen);
+        } catch {}
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          applyState(d.state);
+          if (d.lastSeen) setDeviceLastSeen(d.lastSeen);
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        applyState("offline");
+        // Reconnect after 4s
+        retryTimer = setTimeout(connect, 4000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+    return () => { clearTimeout(retryTimer); if (ws) ws.close(); };
   }, []);
 
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;

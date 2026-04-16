@@ -226,14 +226,15 @@ void setupI2S() {
 }
 
 /* ─────────────────────────────────────────
-   HEARTBEAT — runs in background task
+   DEVICE STATUS — send state to backend
    ───────────────────────────────────────── */
-void sendHeartbeat() {
+// Send explicit state: "online" | "recording" | "idle"
+void sendStatus(const char* state) {
   if (WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client;
   client.setInsecure();
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
-  String body = recording ? "{\"recording\":true}" : "{\"recording\":false}";
+  String body = String("{\"status\":\"") + state + "\"}";
   client.printf("POST /device/heartbeat HTTP/1.0\r\n");
   client.printf("Host: %s\r\n",           BACKEND_HOST);
   client.printf("X-Api-Key: %s\r\n",      ESP32_API_KEY);
@@ -246,12 +247,12 @@ void sendHeartbeat() {
   client.stop();
 }
 
+// Heartbeat task: sends "online" every 3s when idle
+// Pauses during recording — HTTPS blocks SD SPI writes
 void heartbeatTask(void* param) {
   while (1) {
-    if (!recording) {   // pause heartbeat during recording — HTTPS blocks SD writes
-      sendHeartbeat();
-    }
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    if (!recording) sendStatus("online");
+    vTaskDelay(pdMS_TO_TICKS(3000));
   }
 }
 
@@ -321,6 +322,9 @@ void setup() {
     if (getLocalTime(&t))
       Serial.printf("\n[NTP]  ✓ Time: %04d-%02d-%02d %02d:%02d:%02d\n",
         t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+
+    sendStatus("online");  // announce device is up
+    Serial.println("[STATUS] ✓ Sent online status to backend");
   } else {
     Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
   }
@@ -400,6 +404,7 @@ void loop() {
         sdBufPos     = 0;
         writeWavHeader(wavFile);
         recording = true;
+        sendStatus("recording");  // notify backend before SD writes begin
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
     } else {
@@ -416,6 +421,7 @@ void loop() {
       Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
       finalizeWav(currentFile);
       sendToBackend(currentFile, dur);
+      sendStatus("idle");  // notify backend recording is done
     }
   }
 

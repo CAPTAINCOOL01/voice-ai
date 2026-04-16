@@ -15,6 +15,8 @@ const fs             = require("fs");
 const os             = require("os");
 const { S3Client, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
+const http       = require("http");
+const WebSocket  = require("ws");
 
 // ── Config ───────────────────────────────────────────────
 const PORT       = process.env.PORT       || 5000;
@@ -212,33 +214,43 @@ app.post("/auth/login", async (req, res) => {
 });
 
 // ── Device heartbeat state (in-memory) ───────────────────
-let deviceLastSeen      = null;
-let deviceRecording     = false;
-let deviceRecordingStart = null; // when recording=true was first seen
+// ── Device state machine ──────────────────────────────────
+// States: "offline" | "online" | "recording"
+let deviceState     = "offline";
+let deviceLastSeen  = null;
 
-// POST /device/heartbeat — called by ESP32 every 2s (paused during recording to avoid SPI conflict)
+function setDeviceState(newState) {
+  if (deviceState === newState) return; // no change, no broadcast
+  deviceState = newState;
+  broadcast({ state: newState, lastSeen: deviceLastSeen });
+  console.log(`[DEVICE] State → ${newState}`);
+}
+
+// Auto-offline: if no ping for 10s, mark offline
+setInterval(() => {
+  if (deviceState !== "offline" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 10000) {
+    setDeviceState("offline");
+  }
+}, 2000);
+
+// POST /device/heartbeat — called by ESP32 every 2s (pauses during recording)
 app.post("/device/heartbeat", auth, (req, res) => {
-  const wasRecording = deviceRecording;
-  deviceLastSeen  = new Date();
-  deviceRecording = req.body?.recording === true;
-  // Track when recording began so we can extend the online window
-  if (deviceRecording && !wasRecording) deviceRecordingStart = new Date();
-  if (!deviceRecording) deviceRecordingStart = null;
+  deviceLastSeen = new Date();
+  const status   = req.body?.status; // "online" | "recording" | "idle"
+  const legacy   = req.body?.recording; // backwards compat with old firmware
+
+  if      (status === "recording")         setDeviceState("recording");
+  else if (status === "idle" || status === "online") setDeviceState("online");
+  else if (legacy === true)                setDeviceState("recording");
+  else if (legacy === false)               setDeviceState("online");
+  else                                     setDeviceState("online"); // bare ping = online
+
   res.json({ status: "ok" });
 });
 
-// GET /device/status — polled by frontend
-// Normal online window: 7s (heartbeat every 2s, allows 3 missed beats)
-// Recording window: 120s — heartbeats are paused during recording to avoid SPI conflict with SD,
-// so we keep the device alive based on when it last said recording=true
+// GET /device/status — REST fallback for initial page load
 app.get("/device/status", auth, (req, res) => {
-  const now = Date.now();
-  const msSeen = deviceLastSeen ? now - deviceLastSeen.getTime() : Infinity;
-  // Device is online if seen recently OR if it entered recording state within 120s
-  const online = msSeen < 7000 || (deviceRecording && deviceRecordingStart && (now - deviceRecordingStart.getTime()) < 120000);
-  // Still recording if online AND recording flag was true (heartbeats paused during recording)
-  const recording = online && deviceRecording;
-  res.json({ online: !!online, recording: !!recording, lastSeen: deviceLastSeen });
+  res.json({ state: deviceState, lastSeen: deviceLastSeen });
 });
 
 // ── OAuth helper — issue JWT and redirect to frontend ────
@@ -608,5 +620,34 @@ if (fs.existsSync(DIST)) {
   app.use((_, res) => res.sendFile(path.join(DIST, "index.html")));
 }
 
-// ── Start ─────────────────────────────────────────────────
-app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+// ── HTTP + WebSocket server ───────────────────────────────
+const server = http.createServer(app);
+const wss    = new WebSocket.Server({ noServer: true });
+
+// Only upgrade /ws path — everything else stays as normal HTTP
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url, "http://localhost");
+  if (url.pathname !== "/ws") { socket.destroy(); return; }
+  wss.handleUpgrade(req, socket, head, ws => wss.emit("connection", ws, req));
+});
+
+// Authenticate WS connection via token in query string: ?token=xxx
+wss.on("connection", (ws, req) => {
+  const url   = new URL(req.url, "http://localhost");
+  const token = url.searchParams.get("token");
+  try { jwt.verify(token, JWT_SECRET); } catch {
+    ws.close(1008, "Unauthorized"); return;
+  }
+  // Send current state immediately on connect
+  ws.send(JSON.stringify({ state: deviceState, lastSeen: deviceLastSeen }));
+  ws.on("error", () => {}); // suppress unhandled errors
+});
+
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  });
+}
+
+server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
