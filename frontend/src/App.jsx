@@ -1017,6 +1017,7 @@ export default function App() {
   const [recordings, setRecordings]   = useState([]);
   const [loadingRecs, setLoadingRecs] = useState(true);
   const [fetchError,  setFetchError]  = useState(null);
+  const [selected, setSelected]       = useState(new Set());
   const [deviceOnline, setDeviceOnline] = useState(false);
   const [deviceLastSeen, setDeviceLastSeen] = useState(null);
   const [search, setSearch]           = useState("");
@@ -1121,8 +1122,40 @@ export default function App() {
       const res = await authFetch(`${API}/recordings/${id}`, { method:"DELETE" });
       if (!res.ok) throw new Error("Delete failed");
       setRecordings(prev => prev.filter(r => r._id !== id));
+      setSelected(prev => { const s = new Set(prev); s.delete(id); return s; });
       if (activeRec?.rec._id === id) setActiveRec(null);
     } catch (err) { console.error("Delete error:", err); }
+  };
+
+  const deleteSelected = async () => {
+    if (!selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} recording${selected.size>1?"s":""}?`)) return;
+    await Promise.all([...selected].map(id => authFetch(`${API}/recordings/${id}`, { method:"DELETE" })));
+    setRecordings(prev => prev.filter(r => !selected.has(r._id)));
+    if (activeRec && selected.has(activeRec.rec._id)) setActiveRec(null);
+    setSelected(new Set());
+  };
+
+  const deleteAll = async () => {
+    if (!recordings.length) return;
+    if (!window.confirm(`Delete all ${recordings.length} recordings? This cannot be undone.`)) return;
+    await Promise.all(recordings.map(r => authFetch(`${API}/recordings/${r._id}`, { method:"DELETE" })));
+    setRecordings([]);
+    setSelected(new Set());
+    setActiveRec(null);
+  };
+
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map(r => r._id)));
   };
 
   const analyseRecording = async (id) => {
@@ -1456,6 +1489,48 @@ export default function App() {
             </div>
           </div>
 
+          {/* Selection toolbar */}
+          {recordings.length > 0 && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+              <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#71717a", cursor:"pointer", userSelect:"none" }}>
+                <input type="checkbox"
+                  checked={filtered.length > 0 && selected.size === filtered.length}
+                  onChange={toggleSelectAll}
+                  style={{ accentColor:"#f59e0b", width:14, height:14, cursor:"pointer" }}
+                />
+                {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+              </label>
+
+              {selected.size > 0 && (
+                <button onClick={deleteSelected} style={{
+                  display:"flex", alignItems:"center", gap:5, padding:"5px 12px",
+                  borderRadius:8, background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)",
+                  color:"#f87171", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
+                }}>
+                  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                  Delete {selected.size} selected
+                </button>
+              )}
+
+              <button onClick={deleteAll} style={{
+                display:"flex", alignItems:"center", gap:5, padding:"5px 12px",
+                borderRadius:8, background:"transparent", border:"1px solid #27272a",
+                color:"#71717a", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", marginLeft:"auto",
+              }}
+              onMouseEnter={e=>{ e.currentTarget.style.borderColor="rgba(239,68,68,0.4)"; e.currentTarget.style.color="#f87171"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
+                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                </svg>
+                Delete all
+              </button>
+            </div>
+          )}
+
           {fetchError && (
             <div style={{ background:"rgba(239,68,68,.08)", border:"1px solid rgba(239,68,68,.2)",
               borderRadius:14, padding:16, color:"#f87171", fontSize:13, marginBottom:16 }}>
@@ -1492,15 +1567,23 @@ export default function App() {
           {!loadingRecs && filtered.length>0 && (
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
               {filtered.map((rec,i)=>(
-                <RecordingCard
-                  key={rec._id}
-                  rec={rec}
-                  recIndex={recordings.indexOf(rec)}
-                  onOpen={(tab)=>setActiveRec({ rec, recIndex:recordings.indexOf(rec), tab })}
-                  onDelete={deleteRecording}
-                  onAnalyse={analyseRecording}
-                  analysing={analysingId === rec._id}
-                />
+                <div key={rec._id} style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                  <input type="checkbox"
+                    checked={selected.has(rec._id)}
+                    onChange={()=>toggleSelect(rec._id)}
+                    style={{ accentColor:"#f59e0b", width:15, height:15, marginTop:16, cursor:"pointer", flexShrink:0 }}
+                  />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <RecordingCard
+                      rec={rec}
+                      recIndex={recordings.indexOf(rec)}
+                      onOpen={(tab)=>setActiveRec({ rec, recIndex:recordings.indexOf(rec), tab })}
+                      onDelete={deleteRecording}
+                      onAnalyse={analyseRecording}
+                      analysing={analysingId === rec._id}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           )}
