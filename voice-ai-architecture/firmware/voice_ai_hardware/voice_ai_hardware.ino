@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <ESPAsyncWebServer.h>
 #include "driver/i2s.h"
+#include <time.h>
 
 /* ─────────────────────────────────────────
    USER CONFIG
@@ -48,7 +49,7 @@ bool     recording    = false;
 uint32_t bytesWritten = 0;
 uint16_t fileIndex    = 0;
 uint32_t recStartMs   = 0;
-char     currentFile[20];
+char     currentFile[32];  // e.g. /2026-04-16_09-32-15.wav
 bool     firstRead     = true;
 uint32_t lastLog       = 0;
 
@@ -303,13 +304,26 @@ void setup() {
   uint32_t wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500); Serial.print(".");
-    if (millis() - wifiStart > 15000) {
-      Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
-      break;
-    }
+    if (millis() - wifiStart > 15000) break;
   }
-  if (WiFi.status() == WL_CONNECTED)
+  if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\n[WIFI] ✓ Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+
+    // ── NTP Time Sync ──
+    Serial.println("[NTP]  Syncing time...");
+    configTime(5 * 3600 + 30 * 60, 0, "pool.ntp.org", "time.nist.gov"); // UTC+5:30 India
+    struct tm t;
+    uint32_t ntpStart = millis();
+    while (!getLocalTime(&t)) {
+      delay(500); Serial.print(".");
+      if (millis() - ntpStart > 8000) { Serial.println("\n[NTP]  ✗ Sync failed — using counter names"); break; }
+    }
+    if (getLocalTime(&t))
+      Serial.printf("\n[NTP]  ✓ Time: %04d-%02d-%02d %02d:%02d:%02d\n",
+        t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+  } else {
+    Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
+  }
 
   // ── I2S Mic ──
   setupI2S();
@@ -367,7 +381,14 @@ void loop() {
     delay(15);
     if (!recording) {
       // ── START ──
-      sprintf(currentFile, "/REC%03u.wav", fileIndex++);
+      // Name file by current date+time; fall back to counter if NTP not synced
+      struct tm t;
+      if (getLocalTime(&t)) {
+        sprintf(currentFile, "/%04d-%02d-%02d_%02d-%02d-%02d.wav",
+          t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+      } else {
+        sprintf(currentFile, "/REC%03u.wav", fileIndex++);
+      }
       wavFile = SD.open(currentFile, FILE_WRITE);
       if (!wavFile) {
         Serial.println("[REC]  ✗ Cannot create file on SD card");
