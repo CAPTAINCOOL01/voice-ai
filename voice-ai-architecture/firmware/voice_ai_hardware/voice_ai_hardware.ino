@@ -225,11 +225,8 @@ void setupI2S() {
 }
 
 /* ─────────────────────────────────────────
-   HEARTBEAT
+   HEARTBEAT — runs in background task
    ───────────────────────────────────────── */
-uint32_t lastServerPing = 0;
-#define  SERVER_PING_INTERVAL 2000
-
 void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client;
@@ -237,8 +234,8 @@ void sendHeartbeat() {
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
   String body = recording ? "{\"recording\":true}" : "{\"recording\":false}";
   client.printf("POST /device/heartbeat HTTP/1.0\r\n");
-  client.printf("Host: %s\r\n",         BACKEND_HOST);
-  client.printf("X-Api-Key: %s\r\n",    ESP32_API_KEY);
+  client.printf("Host: %s\r\n",           BACKEND_HOST);
+  client.printf("X-Api-Key: %s\r\n",      ESP32_API_KEY);
   client.printf("Content-Type: application/json\r\n");
   client.printf("Content-Length: %d\r\n", body.length());
   client.print ("Connection: close\r\n\r\n");
@@ -246,6 +243,13 @@ void sendHeartbeat() {
   unsigned long t = millis();
   while (client.connected() && millis() - t < 3000) delay(10);
   client.stop();
+}
+
+void heartbeatTask(void* param) {
+  while (1) {
+    sendHeartbeat();
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
 }
 
 /* ─────────────────────────────────────────
@@ -343,18 +347,16 @@ void setup() {
   Serial.println("[READY] Press button once to start recording");
   Serial.println("[READY] Press button again to stop & upload");
   Serial.println("==========================================");
+
+  // Start heartbeat in background — keeps loop() free for instant button response
+  xTaskCreate(heartbeatTask, "heartbeat", 8192, NULL, 1, NULL);
+  Serial.println("[BEAT] ✓ Heartbeat task started");
 }
 
 /* ─────────────────────────────────────────
    LOOP
    ───────────────────────────────────────── */
 void loop() {
-  // ── Heartbeat — skip while recording ──
-  if (!recording && millis() - lastServerPing > SERVER_PING_INTERVAL) {
-    lastServerPing = millis();
-    sendHeartbeat();
-  }
-
   // ── Button: press once to start, press again to stop ──
   static bool lastBtn = HIGH;
   bool btn = digitalRead(PIN_BUTTON);
