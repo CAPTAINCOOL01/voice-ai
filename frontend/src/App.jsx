@@ -255,21 +255,26 @@ function AudioPlayer({ src, large }) {
     return () => { if (url) URL.revokeObjectURL(url); };
   }, [src]);
 
-  // Re-attach listeners whenever blobUrl changes so loadedmetadata is never missed
+  // Re-attach listeners and force reload whenever blobUrl changes
   useEffect(() => {
     const el = ref.current; if (!el || !blobUrl) return;
     const onTime  = () => setProg(el.currentTime);
-    const onMeta  = () => setDur(el.duration);
+    const onMeta  = () => { if (el.duration && isFinite(el.duration)) setDur(el.duration); };
     const onEnded = () => { setPlaying(false); setProg(0); };
+    const onErr   = (e) => console.error("Audio element error:", e.target.error);
     el.addEventListener("timeupdate",     onTime);
     el.addEventListener("loadedmetadata", onMeta);
+    el.addEventListener("durationchange", onMeta);
     el.addEventListener("ended",          onEnded);
-    // If metadata already loaded (fast cache), grab duration immediately
-    if (el.readyState >= 1 && el.duration) setDur(el.duration);
+    el.addEventListener("error",          onErr);
+    // Force browser to reload the new source — without this, changing src doesn't trigger loadedmetadata
+    el.load();
     return () => {
       el.removeEventListener("timeupdate",     onTime);
       el.removeEventListener("loadedmetadata", onMeta);
+      el.removeEventListener("durationchange", onMeta);
       el.removeEventListener("ended",          onEnded);
+      el.removeEventListener("error",          onErr);
     };
   }, [blobUrl]);
 
@@ -1071,35 +1076,20 @@ export default function App() {
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
   const [deviceRecording, setDeviceRecording] = useState(false);
-  const deviceStateRef = useRef({ online: false, recording: false, confirmedAt: 0 });
 
-  // Poll device status every 3s — heartbeat fires every 2s, 7s online window on backend
-  // We debounce state changes: only flip to offline/not-recording after 2 consecutive confirms
+  // Poll device status every 3s
+  // Backend handles extended online window during recording (heartbeats pause on ESP32 during SD writes)
   useEffect(() => {
     const checkDevice = async () => {
       try {
         const res  = await authFetch(`${API}/device/status`);
         const data = await res.json();
-        const prev = deviceStateRef.current;
-
-        // Immediately apply online=true and recording=true (no delay for positive transitions)
-        if (data.online)     setDeviceOnline(true);
-        if (data.recording)  setDeviceRecording(true);
-
-        // Only go offline/stop-recording after 2 consecutive negative polls (debounce flicker)
-        if (!data.online) {
-          if (prev.online === false) { setDeviceOnline(false); setDeviceRecording(false); }
-        }
-        if (data.online && !data.recording) {
-          if (prev.recording === false) setDeviceRecording(false);
-        }
-
-        deviceStateRef.current = { online: data.online, recording: data.recording };
+        setDeviceOnline(!!data.online);
+        setDeviceRecording(!!data.recording);
         setDeviceLastSeen(data.lastSeen);
       } catch {
-        const prev = deviceStateRef.current;
-        if (!prev.online) { setDeviceOnline(false); setDeviceRecording(false); }
-        deviceStateRef.current = { online: false, recording: false };
+        setDeviceOnline(false);
+        setDeviceRecording(false);
       }
     };
     checkDevice();

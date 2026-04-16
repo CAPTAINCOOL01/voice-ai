@@ -212,21 +212,33 @@ app.post("/auth/login", async (req, res) => {
 });
 
 // ── Device heartbeat state (in-memory) ───────────────────
-let deviceLastSeen = null;
-let deviceRecording = false;
+let deviceLastSeen      = null;
+let deviceRecording     = false;
+let deviceRecordingStart = null; // when recording=true was first seen
 
-// POST /device/heartbeat — called by ESP32 every 2s
+// POST /device/heartbeat — called by ESP32 every 2s (paused during recording to avoid SPI conflict)
 app.post("/device/heartbeat", auth, (req, res) => {
+  const wasRecording = deviceRecording;
   deviceLastSeen  = new Date();
   deviceRecording = req.body?.recording === true;
+  // Track when recording began so we can extend the online window
+  if (deviceRecording && !wasRecording) deviceRecordingStart = new Date();
+  if (!deviceRecording) deviceRecordingStart = null;
   res.json({ status: "ok" });
 });
 
 // GET /device/status — polled by frontend
-// online window = 7s (heartbeat every 2s, allow up to 3 missed beats before going offline)
+// Normal online window: 7s (heartbeat every 2s, allows 3 missed beats)
+// Recording window: 120s — heartbeats are paused during recording to avoid SPI conflict with SD,
+// so we keep the device alive based on when it last said recording=true
 app.get("/device/status", auth, (req, res) => {
-  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 7000;
-  res.json({ online: !!online, recording: !!online && deviceRecording, lastSeen: deviceLastSeen });
+  const now = Date.now();
+  const msSeen = deviceLastSeen ? now - deviceLastSeen.getTime() : Infinity;
+  // Device is online if seen recently OR if it entered recording state within 120s
+  const online = msSeen < 7000 || (deviceRecording && deviceRecordingStart && (now - deviceRecordingStart.getTime()) < 120000);
+  // Still recording if online AND recording flag was true (heartbeats paused during recording)
+  const recording = online && deviceRecording;
+  res.json({ online: !!online, recording: !!recording, lastSeen: deviceLastSeen });
 });
 
 // ── OAuth helper — issue JWT and redirect to frontend ────
