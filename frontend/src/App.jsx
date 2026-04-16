@@ -228,60 +228,74 @@ function AudioPlayer({ src, large }) {
   const [progress, setProg]   = useState(0);
   const [dur, setDur]         = useState(0);
   const [speed, setSpeed]     = useState(1);
-  const [blobUrl, setBlobUrl] = useState(null);
   const [loading, setLoading] = useState(false);
-  const ref = useRef(null);
+  const [error, setError]     = useState(null);
+  const ref    = useRef(null);
+  const urlRef = useRef(null); // track object URL for cleanup
 
   useEffect(() => {
-    if (!src) return;
-    let url;
+    const el = ref.current;
+    if (!src || !el) return;
+
+    let cancelled = false;
     setLoading(true);
+    setError(null);
     setPlaying(false);
     setProg(0);
     setDur(0);
-    authFetch(src)
-      .then(r => r.blob())
-      .then(blob => {
-        // Force audio/wav for WAV files so browser can decode it
-        const mime = src.toLowerCase().includes(".wav") || src.includes("/audio")
-          ? "audio/wav"
-          : (blob.type || "audio/webm");
-        const typed = new Blob([blob], { type: mime });
-        url = URL.createObjectURL(typed);
-        setBlobUrl(url);
-      })
-      .catch(() => setBlobUrl(src))
-      .finally(() => setLoading(false));
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [src]);
 
-  // Re-attach listeners and force reload whenever blobUrl changes
-  useEffect(() => {
-    const el = ref.current; if (!el || !blobUrl) return;
+    // Attach listeners before fetching so nothing is missed
     const onTime  = () => setProg(el.currentTime);
     const onMeta  = () => { if (el.duration && isFinite(el.duration)) setDur(el.duration); };
     const onEnded = () => { setPlaying(false); setProg(0); };
-    const onErr   = (e) => console.error("Audio element error:", e.target.error);
+    const onErr   = () => { setError("Failed to play audio"); setLoading(false); };
     el.addEventListener("timeupdate",     onTime);
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("durationchange", onMeta);
     el.addEventListener("ended",          onEnded);
     el.addEventListener("error",          onErr);
-    // Force browser to reload the new source — without this, changing src doesn't trigger loadedmetadata
-    el.load();
+
+    authFetch(src)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        // Revoke previous object URL
+        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+        const mime = blob.type && blob.type !== "application/octet-stream"
+          ? blob.type
+          : src.includes("/audio") ? "audio/wav" : "audio/webm";
+        const typed = new Blob([blob], { type: mime });
+        const url = URL.createObjectURL(typed);
+        urlRef.current = url;
+        // Set src directly on the element and call load() — most reliable cross-browser approach
+        el.src = url;
+        el.load();
+        setLoading(false);
+      })
+      .catch(err => {
+        if (!cancelled) { setError(`Could not load audio: ${err.message}`); setLoading(false); }
+      });
+
     return () => {
+      cancelled = true;
       el.removeEventListener("timeupdate",     onTime);
       el.removeEventListener("loadedmetadata", onMeta);
       el.removeEventListener("durationchange", onMeta);
       el.removeEventListener("ended",          onEnded);
       el.removeEventListener("error",          onErr);
+      el.pause();
+      el.src = "";
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
     };
-  }, [blobUrl]);
+  }, [src]);
 
   const toggle = () => {
     const el = ref.current; if (!el) return;
     if (playing) { el.pause(); setPlaying(false); }
-    else { el.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); }
+    else { el.play().then(() => setPlaying(true)).catch(e => { setError(`Playback failed: ${e.message}`); setPlaying(false); }); }
   };
   const skip   = (n) => { ref.current.currentTime = Math.min(Math.max(0, ref.current.currentTime + n), dur); };
   const seek   = (e) => { const r = e.currentTarget.getBoundingClientRect(); ref.current.currentTime = ((e.clientX - r.left) / r.width) * dur; };
@@ -295,9 +309,12 @@ function AudioPlayer({ src, large }) {
 
   return (
     <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:16, padding: large ? 20 : 14 }}>
-      <audio ref={ref} src={blobUrl || ""} preload="auto" />
+      <audio ref={ref} preload="auto" />
       {loading && (
-        <div style={{ textAlign:"center", color:"#52525b", fontSize:12, marginBottom:8 }}>Loading audio…</div>
+        <div style={{ textAlign:"center", color:"#71717a", fontSize:12, marginBottom:8 }}>Loading audio…</div>
+      )}
+      {error && (
+        <div style={{ textAlign:"center", color:"#f87171", fontSize:12, marginBottom:8 }}>{error}</div>
       )}
       {large && (
         <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:48, justifyContent:"center", marginBottom:16 }}>
