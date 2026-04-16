@@ -228,59 +228,39 @@ function AudioPlayer({ src, large }) {
   const [progress, setProg]   = useState(0);
   const [dur, setDur]         = useState(0);
   const [speed, setSpeed]     = useState(1);
-  const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
-  const ref    = useRef(null);
-  const urlRef = useRef(null); // track object URL for cleanup
+  const ref = useRef(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!src || !el) return;
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setPlaying(false);
-    setProg(0);
-    setDur(0);
+    setError(null); setPlaying(false); setProg(0); setDur(0);
 
-    // Attach listeners before fetching so nothing is missed
+    // Pass token as query param — avoids blob URLs entirely
+    // Blob URLs cause ERR_REQUEST_RANGE_NOT_SATISFIABLE in Chrome (no range support on blobs)
+    const directUrl = `${src}${src.includes("?") ? "&" : "?"}token=${getToken()}`;
+
     const onTime  = () => setProg(el.currentTime);
     const onMeta  = () => { if (el.duration && isFinite(el.duration)) setDur(el.duration); };
     const onEnded = () => { setPlaying(false); setProg(0); };
-    const onErr   = () => { setError("Failed to play audio"); setLoading(false); };
+    const onErr   = () => {
+      const code = el.error?.code;
+      if (code === 4) setError("Audio format not supported by browser");
+      else if (code === 3) setError("Audio file is corrupt or empty");
+      else setError("Could not load audio");
+    };
+
     el.addEventListener("timeupdate",     onTime);
     el.addEventListener("loadedmetadata", onMeta);
     el.addEventListener("durationchange", onMeta);
     el.addEventListener("ended",          onEnded);
     el.addEventListener("error",          onErr);
 
-    authFetch(src)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.blob();
-      })
-      .then(blob => {
-        if (cancelled) return;
-        // Revoke previous object URL
-        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-        const mime = blob.type && blob.type !== "application/octet-stream"
-          ? blob.type
-          : src.includes("/audio") ? "audio/wav" : "audio/webm";
-        const typed = new Blob([blob], { type: mime });
-        const url = URL.createObjectURL(typed);
-        urlRef.current = url;
-        // Set src directly on the element and call load() — most reliable cross-browser approach
-        el.src = url;
-        el.load();
-        setLoading(false);
-      })
-      .catch(err => {
-        if (!cancelled) { setError(`Could not load audio: ${err.message}`); setLoading(false); }
-      });
+    el.src = directUrl;
+    el.load();
 
     return () => {
-      cancelled = true;
       el.removeEventListener("timeupdate",     onTime);
       el.removeEventListener("loadedmetadata", onMeta);
       el.removeEventListener("durationchange", onMeta);
@@ -288,7 +268,6 @@ function AudioPlayer({ src, large }) {
       el.removeEventListener("error",          onErr);
       el.pause();
       el.src = "";
-      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
     };
   }, [src]);
 
@@ -310,9 +289,6 @@ function AudioPlayer({ src, large }) {
   return (
     <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:16, padding: large ? 20 : 14 }}>
       <audio ref={ref} preload="auto" />
-      {loading && (
-        <div style={{ textAlign:"center", color:"#71717a", fontSize:12, marginBottom:8 }}>Loading audio…</div>
-      )}
       {error && (
         <div style={{ textAlign:"center", color:"#f87171", fontSize:12, marginBottom:8 }}>{error}</div>
       )}
