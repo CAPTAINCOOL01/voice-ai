@@ -223,8 +223,9 @@ app.post("/device/heartbeat", auth, (req, res) => {
 });
 
 // GET /device/status — polled by frontend
+// online window = 7s (heartbeat every 2s, allow up to 3 missed beats before going offline)
 app.get("/device/status", auth, (req, res) => {
-  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 6000;
+  const online = deviceLastSeen && (Date.now() - deviceLastSeen.getTime()) < 7000;
   res.json({ online: !!online, recording: !!online && deviceRecording, lastSeen: deviceLastSeen });
 });
 

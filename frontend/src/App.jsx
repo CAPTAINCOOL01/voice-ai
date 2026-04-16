@@ -229,31 +229,55 @@ function AudioPlayer({ src, large }) {
   const [dur, setDur]         = useState(0);
   const [speed, setSpeed]     = useState(1);
   const [blobUrl, setBlobUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
     if (!src) return;
     let url;
+    setLoading(true);
+    setPlaying(false);
+    setProg(0);
+    setDur(0);
     authFetch(src)
       .then(r => r.blob())
       .then(blob => {
-        const mime = src.includes("audio") ? (blob.type || "audio/wav") : blob.type;
+        // Force audio/wav for WAV files so browser can decode it
+        const mime = src.toLowerCase().includes(".wav") || src.includes("/audio")
+          ? "audio/wav"
+          : (blob.type || "audio/webm");
         const typed = new Blob([blob], { type: mime });
         url = URL.createObjectURL(typed);
         setBlobUrl(url);
       })
-      .catch(() => setBlobUrl(src));
+      .catch(() => setBlobUrl(src))
+      .finally(() => setLoading(false));
     return () => { if (url) URL.revokeObjectURL(url); };
   }, [src]);
 
+  // Re-attach listeners whenever blobUrl changes so loadedmetadata is never missed
   useEffect(() => {
-    const el = ref.current; if (!el) return;
-    el.addEventListener("timeupdate",     () => setProg(el.currentTime));
-    el.addEventListener("loadedmetadata", () => setDur(el.duration));
-    el.addEventListener("ended",          () => { setPlaying(false); setProg(0); });
-  }, []);
+    const el = ref.current; if (!el || !blobUrl) return;
+    const onTime  = () => setProg(el.currentTime);
+    const onMeta  = () => setDur(el.duration);
+    const onEnded = () => { setPlaying(false); setProg(0); };
+    el.addEventListener("timeupdate",     onTime);
+    el.addEventListener("loadedmetadata", onMeta);
+    el.addEventListener("ended",          onEnded);
+    // If metadata already loaded (fast cache), grab duration immediately
+    if (el.readyState >= 1 && el.duration) setDur(el.duration);
+    return () => {
+      el.removeEventListener("timeupdate",     onTime);
+      el.removeEventListener("loadedmetadata", onMeta);
+      el.removeEventListener("ended",          onEnded);
+    };
+  }, [blobUrl]);
 
-  const toggle = () => playing ? (ref.current.pause(), setPlaying(false)) : (ref.current.play(), setPlaying(true));
+  const toggle = () => {
+    const el = ref.current; if (!el) return;
+    if (playing) { el.pause(); setPlaying(false); }
+    else { el.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); }
+  };
   const skip   = (n) => { ref.current.currentTime = Math.min(Math.max(0, ref.current.currentTime + n), dur); };
   const seek   = (e) => { const r = e.currentTarget.getBoundingClientRect(); ref.current.currentTime = ((e.clientX - r.left) / r.width) * dur; };
   const cycleSpeed = () => {
@@ -266,7 +290,10 @@ function AudioPlayer({ src, large }) {
 
   return (
     <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:16, padding: large ? 20 : 14 }}>
-      <audio ref={ref} src={blobUrl || ""} preload="metadata" />
+      <audio ref={ref} src={blobUrl || ""} preload="auto" />
+      {loading && (
+        <div style={{ textAlign:"center", color:"#52525b", fontSize:12, marginBottom:8 }}>Loading audio…</div>
+      )}
       {large && (
         <div style={{ display:"flex", alignItems:"flex-end", gap:2, height:48, justifyContent:"center", marginBottom:16 }}>
           {Array.from({length:36}).map((_,i)=>(
@@ -1044,20 +1071,39 @@ export default function App() {
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
   const [deviceRecording, setDeviceRecording] = useState(false);
+  const deviceStateRef = useRef({ online: false, recording: false, confirmedAt: 0 });
 
-  // Poll device status every 2 seconds
+  // Poll device status every 3s — heartbeat fires every 2s, 7s online window on backend
+  // We debounce state changes: only flip to offline/not-recording after 2 consecutive confirms
   useEffect(() => {
     const checkDevice = async () => {
       try {
         const res  = await authFetch(`${API}/device/status`);
         const data = await res.json();
-        setDeviceOnline(data.online);
-        setDeviceRecording(data.recording || false);
+        const prev = deviceStateRef.current;
+
+        // Immediately apply online=true and recording=true (no delay for positive transitions)
+        if (data.online)     setDeviceOnline(true);
+        if (data.recording)  setDeviceRecording(true);
+
+        // Only go offline/stop-recording after 2 consecutive negative polls (debounce flicker)
+        if (!data.online) {
+          if (prev.online === false) { setDeviceOnline(false); setDeviceRecording(false); }
+        }
+        if (data.online && !data.recording) {
+          if (prev.recording === false) setDeviceRecording(false);
+        }
+
+        deviceStateRef.current = { online: data.online, recording: data.recording };
         setDeviceLastSeen(data.lastSeen);
-      } catch { setDeviceOnline(false); setDeviceRecording(false); }
+      } catch {
+        const prev = deviceStateRef.current;
+        if (!prev.online) { setDeviceOnline(false); setDeviceRecording(false); }
+        deviceStateRef.current = { online: false, recording: false };
+      }
     };
     checkDevice();
-    const interval = setInterval(checkDevice, 2000);
+    const interval = setInterval(checkDevice, 3000);
     return () => clearInterval(interval);
   }, []);
 
