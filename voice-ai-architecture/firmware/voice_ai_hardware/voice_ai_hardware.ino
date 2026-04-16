@@ -247,7 +247,9 @@ void sendHeartbeat() {
 
 void heartbeatTask(void* param) {
   while (1) {
-    sendHeartbeat();
+    if (!recording) {   // pause heartbeat during recording — HTTPS blocks SD writes
+      sendHeartbeat();
+    }
     vTaskDelay(pdMS_TO_TICKS(2000));
   }
 }
