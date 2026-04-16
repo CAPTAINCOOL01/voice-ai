@@ -1521,6 +1521,17 @@ export default function App() {
                   onFocus={e=>e.target.style.borderColor="#f59e0b"}
                   onBlur={e=>e.target.style.borderColor="#27272a"}/>
               </div>
+              {recordings.length > 0 && !selectMode && (
+                <button onClick={()=>setSelectMode(true)} style={{
+                  display:"flex", alignItems:"center", gap:5, padding:"8px 14px",
+                  borderRadius:999, background:"#18181b", border:"1px solid #27272a",
+                  cursor:"pointer", fontSize:12, color:"#71717a", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#3f3f46"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.color="#71717a"; e.currentTarget.style.borderColor="#27272a"; }}>
+                  Select
+                </button>
+              )}
               <button onClick={fetchRecordings} disabled={loadingRecs} style={{
                 display:"flex", alignItems:"center", gap:5, padding:"8px 12px",
                 borderRadius:999, background:"#18181b", border:"1px solid #27272a",
@@ -1535,17 +1546,6 @@ export default function App() {
                 </svg>
                 Refresh
               </button>
-              {recordings.length > 0 && !selectMode && (
-                <button onClick={()=>setSelectMode(true)} style={{
-                  display:"flex", alignItems:"center", gap:5, padding:"8px 14px",
-                  borderRadius:999, background:"#18181b", border:"1px solid #27272a",
-                  cursor:"pointer", fontSize:12, color:"#71717a", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
-                }}
-                onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#3f3f46"; }}
-                onMouseLeave={e=>{ e.currentTarget.style.color="#71717a"; e.currentTarget.style.borderColor="#27272a"; }}>
-                  Select
-                </button>
-              )}
             </div>
           </div>
 
