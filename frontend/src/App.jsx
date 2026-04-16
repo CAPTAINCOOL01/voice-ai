@@ -1018,6 +1018,7 @@ export default function App() {
   const [loadingRecs, setLoadingRecs] = useState(true);
   const [fetchError,  setFetchError]  = useState(null);
   const [selected, setSelected]       = useState(new Set());
+  const [selectMode, setSelectMode]   = useState(false);
   const [deviceOnline, setDeviceOnline] = useState(false);
   const [deviceLastSeen, setDeviceLastSeen] = useState(null);
   const [search, setSearch]           = useState("");
@@ -1157,6 +1158,8 @@ export default function App() {
     if (selected.size === filtered.length) setSelected(new Set());
     else setSelected(new Set(filtered.map(r => r._id)));
   };
+
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   const analyseRecording = async (id) => {
     setAnalysingId(id);
@@ -1474,7 +1477,7 @@ export default function App() {
               </div>
               <button onClick={fetchRecordings} disabled={loadingRecs} style={{
                 display:"flex", alignItems:"center", gap:5, padding:"8px 12px",
-                borderRadius:10, background:"#18181b", border:"1px solid #27272a",
+                borderRadius:999, background:"#18181b", border:"1px solid #27272a",
                 cursor:"pointer", fontSize:12, color:"#71717a", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
               }}
               onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#3f3f46"; }}
@@ -1486,48 +1489,81 @@ export default function App() {
                 </svg>
                 Refresh
               </button>
+              {recordings.length > 0 && !selectMode && (
+                <button onClick={()=>setSelectMode(true)} style={{
+                  display:"flex", alignItems:"center", gap:5, padding:"8px 14px",
+                  borderRadius:999, background:"#18181b", border:"1px solid #27272a",
+                  cursor:"pointer", fontSize:12, color:"#71717a", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#3f3f46"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.color="#71717a"; e.currentTarget.style.borderColor="#27272a"; }}>
+                  Select
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Selection toolbar */}
-          {recordings.length > 0 && (
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
-              <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#71717a", cursor:"pointer", userSelect:"none" }}>
-                <input type="checkbox"
-                  checked={filtered.length > 0 && selected.size === filtered.length}
-                  onChange={toggleSelectAll}
-                  style={{ accentColor:"#f59e0b", width:14, height:14, cursor:"pointer" }}
-                />
-                {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-              </label>
+          {/* Selection action bar — only visible in select mode */}
+          {selectMode && (
+            <div style={{
+              display:"flex", alignItems:"center", gap:8, marginBottom:14, padding:"10px 14px",
+              background:"#18181b", border:"1px solid #27272a", borderRadius:14, flexWrap:"wrap",
+              animation:"fadeUp 0.2s ease",
+            }}>
+              {/* Select all toggle */}
+              <button onClick={toggleSelectAll} style={{
+                display:"flex", alignItems:"center", gap:6, padding:"6px 14px",
+                borderRadius:999, background: selected.size===filtered.length ? "rgba(245,158,11,0.12)" : "transparent",
+                border: selected.size===filtered.length ? "1px solid rgba(245,158,11,0.4)" : "1px solid #3f3f46",
+                color: selected.size===filtered.length ? "#f59e0b" : "#a1a1aa",
+                fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+              }}>
+                {selected.size===filtered.length ? "✓ All selected" : `Select all (${filtered.length})`}
+              </button>
 
-              {selected.size > 0 && (
-                <button onClick={deleteSelected} style={{
-                  display:"flex", alignItems:"center", gap:5, padding:"5px 12px",
-                  borderRadius:8, background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)",
-                  color:"#f87171", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif",
-                }}>
-                  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <span style={{ fontSize:12, color:"#52525b" }}>
+                {selected.size > 0 ? `${selected.size} selected` : "None selected"}
+              </span>
+
+              <div style={{ marginLeft:"auto", display:"flex", gap:8 }}>
+                {selected.size > 0 && (
+                  <button onClick={deleteSelected} style={{
+                    display:"flex", alignItems:"center", gap:6, padding:"7px 16px",
+                    borderRadius:999, background:"rgba(239,68,68,0.12)", border:"1px solid rgba(239,68,68,0.35)",
+                    color:"#f87171", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                  }}
+                  onMouseEnter={e=>{ e.currentTarget.style.background="rgba(239,68,68,0.22)"; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.background="rgba(239,68,68,0.12)"; }}>
+                    <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                      <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                    </svg>
+                    Delete {selected.size}
+                  </button>
+                )}
+                <button onClick={deleteAll} style={{
+                  display:"flex", alignItems:"center", gap:6, padding:"7px 16px",
+                  borderRadius:999, background:"rgba(239,68,68,0.07)", border:"1px solid rgba(239,68,68,0.2)",
+                  color:"#f87171", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s", opacity:0.8
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.opacity="1"; e.currentTarget.style.background="rgba(239,68,68,0.15)"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.opacity="0.8"; e.currentTarget.style.background="rgba(239,68,68,0.07)"; }}>
+                  <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
                     <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                   </svg>
-                  Delete {selected.size} selected
+                  Delete all
                 </button>
-              )}
-
-              <button onClick={deleteAll} style={{
-                display:"flex", alignItems:"center", gap:5, padding:"5px 12px",
-                borderRadius:8, background:"transparent", border:"1px solid #27272a",
-                color:"#71717a", fontSize:12, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", marginLeft:"auto",
-              }}
-              onMouseEnter={e=>{ e.currentTarget.style.borderColor="rgba(239,68,68,0.4)"; e.currentTarget.style.color="#f87171"; }}
-              onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
-                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-                </svg>
-                Delete all
-              </button>
+                <button onClick={exitSelectMode} style={{
+                  padding:"7px 14px", borderRadius:999, background:"transparent",
+                  border:"1px solid #3f3f46", color:"#71717a", fontSize:12, cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#52525b"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.color="#71717a"; e.currentTarget.style.borderColor="#3f3f46"; }}>
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
@@ -1565,26 +1601,45 @@ export default function App() {
           )}
 
           {!loadingRecs && filtered.length>0 && (
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              {filtered.map((rec,i)=>(
-                <div key={rec._id} style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
-                  <input type="checkbox"
-                    checked={selected.has(rec._id)}
-                    onChange={()=>toggleSelect(rec._id)}
-                    style={{ accentColor:"#f59e0b", width:15, height:15, marginTop:16, cursor:"pointer", flexShrink:0 }}
-                  />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <RecordingCard
-                      rec={rec}
-                      recIndex={recordings.indexOf(rec)}
-                      onOpen={(tab)=>setActiveRec({ rec, recIndex:recordings.indexOf(rec), tab })}
-                      onDelete={deleteRecording}
-                      onAnalyse={analyseRecording}
-                      analysing={analysingId === rec._id}
-                    />
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {filtered.map((rec,i)=>{
+                const isSelected = selected.has(rec._id);
+                return (
+                  <div key={rec._id} style={{ display:"flex", alignItems:"center", gap:10, transition:"all 0.2s" }}>
+                    {/* Custom round checkbox — only shown in select mode */}
+                    {selectMode && (
+                      <button onClick={()=>toggleSelect(rec._id)} style={{
+                        width:24, height:24, borderRadius:"50%", flexShrink:0, cursor:"pointer",
+                        border: isSelected ? "2px solid #ef4444" : "2px solid #3f3f46",
+                        background: isSelected ? "#ef4444" : "transparent",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        transition:"all 0.15s", padding:0,
+                      }}>
+                        {isSelected && (
+                          <svg width="12" height="12" fill="none" stroke="#fff" strokeWidth="3" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                    <div style={{ flex:1, minWidth:0,
+                      outline: selectMode && isSelected ? "2px solid rgba(239,68,68,0.35)" : "2px solid transparent",
+                      borderRadius:16, transition:"outline 0.15s",
+                    }}
+                    onClick={selectMode ? ()=>toggleSelect(rec._id) : undefined}
+                    >
+                      <RecordingCard
+                        rec={rec}
+                        recIndex={recordings.indexOf(rec)}
+                        onOpen={selectMode ? ()=>toggleSelect(rec._id) : (tab)=>setActiveRec({ rec, recIndex:recordings.indexOf(rec), tab })}
+                        onDelete={deleteRecording}
+                        onAnalyse={analyseRecording}
+                        analysing={analysingId === rec._id}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
