@@ -364,13 +364,36 @@ void setup() {
     Serial.printf("[WEB]  ✓ Local player: http://%s\n", WiFi.localIP().toString().c_str());
 
   Serial.println("==========================================");
-  Serial.println("[READY] Press button once to start recording");
-  Serial.println("[READY] Press button again to stop & upload");
+  Serial.println("[READY] Auto-start recording on boot");
+  Serial.println("[READY] Press button once to stop & upload");
   Serial.println("==========================================");
 
   // Start heartbeat in background — keeps loop() free for instant button response
   xTaskCreate(heartbeatTask, "heartbeat", 8192, NULL, 1, NULL);
   Serial.println("[BEAT] ✓ Heartbeat task started");
+
+  // ── AUTO-START RECORDING ON BOOT ──
+  struct tm t;
+  if (getLocalTime(&t)) {
+    sprintf(currentFile, "/%04d-%02d-%02d_%02d-%02d-%02d.wav",
+      t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+  } else {
+    sprintf(currentFile, "/REC%03u.wav", fileIndex++);
+  }
+  wavFile = SD.open(currentFile, FILE_WRITE);
+  if (!wavFile) {
+    Serial.println("[REC]  ✗ Cannot create file on SD card");
+  } else {
+    bytesWritten = 0;
+    recStartMs   = millis();
+    firstRead    = true;
+    lastLog      = millis();
+    sdBufPos     = 0;
+    writeWavHeader(wavFile);
+    recording = true;
+    sendStatus("recording");
+    Serial.printf("[REC]  ✓ Auto-recording started → %s\n", currentFile);
+  }
 }
 
 /* ─────────────────────────────────────────
