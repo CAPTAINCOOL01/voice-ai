@@ -216,22 +216,28 @@ app.post("/auth/login", async (req, res) => {
 // ── Device heartbeat state (in-memory) ───────────────────
 // ── Device state machine ──────────────────────────────────
 // States: "offline" | "online" | "recording"
-let deviceState     = "offline";
-let deviceLastSeen  = null;
+let deviceState        = "offline";
+let deviceLastSeen     = null;
+let recordingEndedAt   = null;   // timestamp when device last left "recording" state
 
 function setDeviceState(newState) {
-  if (deviceState === newState) return; // no change, no broadcast
+  if (deviceState === newState) return;
+  if (deviceState === "recording" && newState !== "recording") {
+    recordingEndedAt = Date.now(); // start grace period
+  }
   deviceState = newState;
   broadcast({ state: newState, lastSeen: deviceLastSeen });
   console.log(`[DEVICE] State → ${newState}`);
 }
 
-// Auto-offline: only timeout when idle/online (heartbeats expected every 1.5s)
-// Never timeout during "recording" — heartbeat task pauses while SD card writes
+// Auto-offline: only when "online" and no ping for 4s
+// After recording ends, give 20s grace (upload blocks heartbeats)
 setInterval(() => {
-  if (deviceState === "online" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 4000) {
-    setDeviceState("offline");
-  }
+  if (deviceState !== "online") return;
+  const sinceLastSeen    = deviceLastSeen ? Date.now() - deviceLastSeen.getTime() : Infinity;
+  const sinceRecordingEnd = recordingEndedAt ? Date.now() - recordingEndedAt : Infinity;
+  const timeout          = sinceRecordingEnd < 20000 ? 20000 : 4000;
+  if (sinceLastSeen > timeout) setDeviceState("offline");
 }, 500);
 
 // POST /device/heartbeat — called by ESP32 every 1.5s (pauses during recording)
