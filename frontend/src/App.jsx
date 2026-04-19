@@ -6,11 +6,15 @@ const API = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? win
 const getToken  = ()    => localStorage.getItem("token");
 const setToken  = (t)   => localStorage.setItem("token", t);
 const clearToken = ()   => localStorage.removeItem("token");
-const authFetch = (url, opts = {}) =>
-  fetch(url, {
+const authFetch = async (url, opts = {}) => {
+  const res = await fetch(url, {
     ...opts,
     headers: { ...opts.headers, ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
   });
+  // Auto-logout on 401 — token expired or secret changed
+  if (res.status === 401) { clearToken(); window.location.reload(); }
+  return res;
+};
 
 // ── Login Page ────────────────────────────────────────────
 function LoginPage({ onLogin }) {
@@ -237,9 +241,12 @@ function AudioPlayer({ src, large }) {
 
     setError(null); setPlaying(false); setProg(0); setDur(0);
 
-    // Pass token as query param — avoids blob URLs entirely
-    // Blob URLs cause ERR_REQUEST_RANGE_NOT_SATISFIABLE in Chrome (no range support on blobs)
-    const directUrl = `${src}${src.includes("?") ? "&" : "?"}token=${getToken()}`;
+    // Blob URLs (local preview) — use directly, no token needed
+    // Remote backend URLs — append token as query param (avoids blob URL range issues)
+    const isBlobUrl = src.startsWith("blob:");
+    const directUrl = isBlobUrl
+      ? src
+      : `${src}${src.includes("?") ? "&" : "?"}token=${getToken()}`;
 
     const onTime  = () => setProg(el.currentTime);
     const onMeta  = () => { if (el.duration && isFinite(el.duration)) setDur(el.duration); };
@@ -1204,10 +1211,14 @@ export default function App() {
       setAudioBlob(null); setAudioURL(null); setUploadDone(false);
       setUploadError(null); chunksRef.current = []; durationRef.current = 0;
       const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      const mr = new MediaRecorder(stream, { mimeType:"audio/webm" });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+                     : MediaRecorder.isTypeSupported("audio/mp4")  ? "audio/mp4"
+                     : "";
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
       mr.ondataavailable = e => { if(e.data.size>0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type:"audio/webm" });
+        const mime = mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: mime });
         setAudioBlob(blob); setAudioURL(URL.createObjectURL(blob));
         stream.getTracks().forEach(t=>t.stop());
       };
