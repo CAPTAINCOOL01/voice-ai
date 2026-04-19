@@ -7,12 +7,13 @@ const getToken  = ()    => localStorage.getItem("token");
 const setToken  = (t)   => localStorage.setItem("token", t);
 const clearToken = ()   => localStorage.removeItem("token");
 const authFetch = async (url, opts = {}) => {
+  const token = getToken();
   const res = await fetch(url, {
     ...opts,
-    headers: { ...opts.headers, ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    headers: { ...opts.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
-  // Auto-logout on 401 — token expired or secret changed
-  if (res.status === 401) { clearToken(); window.location.reload(); }
+  // Only auto-logout if we HAD a token and it was rejected — prevents reload loop when logged out
+  if (res.status === 401 && token) { clearToken(); window.location.reload(); }
   return res;
 };
 
