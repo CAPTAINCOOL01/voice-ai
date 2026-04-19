@@ -226,9 +226,10 @@ function setDeviceState(newState) {
   console.log(`[DEVICE] State → ${newState}`);
 }
 
-// Auto-offline: if no ping for 4s, mark offline
+// Auto-offline: only timeout when idle/online (heartbeats expected every 1.5s)
+// Never timeout during "recording" — heartbeat task pauses while SD card writes
 setInterval(() => {
-  if (deviceState !== "offline" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 4000) {
+  if (deviceState === "online" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 4000) {
     setDeviceState("offline");
   }
 }, 500);

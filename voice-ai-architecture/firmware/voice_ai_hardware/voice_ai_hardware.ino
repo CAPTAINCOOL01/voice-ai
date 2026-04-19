@@ -251,7 +251,7 @@ void sendStatus(const char* state) {
 // Pauses during recording — HTTPS blocks SD SPI writes
 void heartbeatTask(void* param) {
   while (1) {
-    if (!recording) sendStatus("online");
+    sendStatus(recording ? "recording" : "online");
     vTaskDelay(pdMS_TO_TICKS(1500));
   }
 }
