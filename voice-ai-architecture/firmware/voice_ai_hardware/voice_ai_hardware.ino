@@ -29,7 +29,7 @@
 #define PIN_SD_MISO   2   // MicroSD MISO
 #define PIN_SD_SCK    6   // MicroSD SCK
 
-#define PIN_BUTTON    9   // Tactile button (INPUT_PULLUP → GND)
+#define PIN_TOGGLE    8   // Toggle switch Common pin (HIGH = record, LOW = stop)
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -252,7 +252,7 @@ void sendStatus(const char* state) {
 void heartbeatTask(void* param) {
   while (1) {
     if (!recording) sendStatus("online");
-    vTaskDelay(pdMS_TO_TICKS(3000));
+    vTaskDelay(pdMS_TO_TICKS(1500));
   }
 }
 
@@ -268,9 +268,9 @@ void setup() {
   Serial.println("==========================================");
   Serial.println("[BOOT] ✓ ESP32-C3 started");
 
-  // ── Button ──
-  pinMode(PIN_BUTTON, INPUT_PULLUP);
-  Serial.println("[BTN]  ✓ Button ready on GPIO9");
+  // ── Toggle Switch ──
+  pinMode(PIN_TOGGLE, INPUT_PULLDOWN);
+  Serial.println("[SW]   ✓ Toggle switch ready on GPIO8 (HIGH=record, LOW=stop)");
 
   // ── SD Card ──
   Serial.println("[SD]   Initializing SD card (CS=10, MOSI=7, MISO=2, SCK=6)...");
@@ -323,7 +323,7 @@ void setup() {
       Serial.printf("\n[NTP]  ✓ Time: %04d-%02d-%02d %02d:%02d:%02d\n",
         t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
 
-    sendStatus("online");  // announce device is up
+    sendStatus("online");
     Serial.println("[STATUS] ✓ Sent online status to backend");
   } else {
     Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
@@ -364,51 +364,29 @@ void setup() {
     Serial.printf("[WEB]  ✓ Local player: http://%s\n", WiFi.localIP().toString().c_str());
 
   Serial.println("==========================================");
-  Serial.println("[READY] Auto-start recording on boot");
-  Serial.println("[READY] Press button once to stop & upload");
+  Serial.println("[READY] Flip toggle UP  → start recording");
+  Serial.println("[READY] Flip toggle DOWN → stop & upload");
   Serial.println("==========================================");
 
-  // Start heartbeat in background — keeps loop() free for instant button response
+  // Start heartbeat in background
   xTaskCreate(heartbeatTask, "heartbeat", 8192, NULL, 1, NULL);
   Serial.println("[BEAT] ✓ Heartbeat task started");
 
-  // ── AUTO-START RECORDING ON BOOT ──
-  struct tm t;
-  if (getLocalTime(&t)) {
-    sprintf(currentFile, "/%04d-%02d-%02d_%02d-%02d-%02d.wav",
-      t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-  } else {
-    sprintf(currentFile, "/REC%03u.wav", fileIndex++);
-  }
-  wavFile = SD.open(currentFile, FILE_WRITE);
-  if (!wavFile) {
-    Serial.println("[REC]  ✗ Cannot create file on SD card");
-  } else {
-    bytesWritten = 0;
-    recStartMs   = millis();
-    firstRead    = true;
-    lastLog      = millis();
-    sdBufPos     = 0;
-    writeWavHeader(wavFile);
-    recording = true;
-    sendStatus("recording");
-    Serial.printf("[REC]  ✓ Auto-recording started → %s\n", currentFile);
-  }
 }
 
 /* ─────────────────────────────────────────
    LOOP
    ───────────────────────────────────────── */
 void loop() {
-  // ── Button: press once to start, press again to stop ──
-  static bool lastBtn = HIGH;
-  bool btn = digitalRead(PIN_BUTTON);
+  // ── Toggle switch: HIGH → start recording, LOW → stop recording ──
+  // Direct state check with 300ms cooldown to prevent rapid re-triggering
+  static uint32_t lastToggleAct = 0;
+  bool toggle = digitalRead(PIN_TOGGLE);
 
-  if (lastBtn == HIGH && btn == LOW) {
-    delay(15);
-    if (!recording) {
+  if (millis() - lastToggleAct > 300) {
+    if (toggle == HIGH && !recording) {
+      lastToggleAct = millis();
       // ── START ──
-      // Name file by current date+time; fall back to counter if NTP not synced
       struct tm t;
       if (getLocalTime(&t)) {
         sprintf(currentFile, "/%04d-%02d-%02d_%02d-%02d-%02d.wav",
@@ -427,14 +405,15 @@ void loop() {
         sdBufPos     = 0;
         writeWavHeader(wavFile);
         recording = true;
-        sendStatus("recording");  // notify backend before SD writes begin
+        sendStatus("recording");
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
-    } else {
+
+    } else if (toggle == LOW && recording) {
+      lastToggleAct = millis();
       // ── STOP ──
       recording = false;
       uint32_t dur = (millis() - recStartMs) / 1000;
-      // Flush remaining buffered samples to SD
       if (sdBufPos > 0) {
         wavFile.write(sdBuf, sdBufPos);
         sdBufPos = 0;
@@ -444,11 +423,9 @@ void loop() {
       Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
       finalizeWav(currentFile);
       sendToBackend(currentFile, dur);
-      sendStatus("idle");  // notify backend recording is done
+      sendStatus("idle");
     }
   }
-
-  lastBtn = btn;
 
   // ── Capture audio samples ──
   if (recording) {

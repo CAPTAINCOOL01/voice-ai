@@ -226,14 +226,14 @@ function setDeviceState(newState) {
   console.log(`[DEVICE] State → ${newState}`);
 }
 
-// Auto-offline: if no ping for 10s, mark offline
+// Auto-offline: if no ping for 4s, mark offline
 setInterval(() => {
-  if (deviceState !== "offline" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 10000) {
+  if (deviceState !== "offline" && deviceLastSeen && Date.now() - deviceLastSeen.getTime() > 4000) {
     setDeviceState("offline");
   }
-}, 2000);
+}, 500);
 
-// POST /device/heartbeat — called by ESP32 every 2s (pauses during recording)
+// POST /device/heartbeat — called by ESP32 every 1.5s (pauses during recording)
 app.post("/device/heartbeat", auth, (req, res) => {
   deviceLastSeen = new Date();
   const status   = req.body?.status; // "online" | "recording" | "idle"
