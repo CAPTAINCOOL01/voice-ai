@@ -600,7 +600,7 @@ app.patch("/recordings/:id", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /chat ────────────────────────────────────────────
+// ── POST /chat — non-streaming fallback ──────────────────
 app.post("/chat", auth, async (req, res) => {
   try {
     const { system, messages } = req.body;
@@ -613,6 +613,32 @@ app.post("/chat", auth, async (req, res) => {
     });
     res.json({ content: response.choices[0].message.content });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /chat/stream — SSE streaming response ────────────
+app.post("/chat/stream", auth, async (req, res) => {
+  const { system, messages } = req.body;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini", max_tokens: 1000, stream: true,
+      messages: [
+        { role: "system", content: system || "You are a helpful assistant." },
+        ...(messages || []),
+      ],
+    });
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content || "";
+      if (token) res.write(`data: ${token}\n\n`);
+    }
+    res.write("data: [DONE]\n\n");
+  } catch (err) {
+    res.write(`data: Error: ${err.message}\n\n`);
+  } finally {
+    res.end();
+  }
 });
 
 // ── Fallback → React app ──────────────────────────────────

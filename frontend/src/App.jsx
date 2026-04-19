@@ -344,30 +344,55 @@ const ghostBtn = {
   padding:6, borderRadius:8,
 };
 
+// ── Simple markdown renderer ────────────────────────────
+function Markdown({ text }) {
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^###\s/.test(l))      { out.push(<p key={i} style={{ fontWeight:700, fontSize:13, color:"#f59e0b", margin:"10px 0 4px" }}>{l.replace(/^###\s/,"")}</p>); }
+    else if (/^##\s/.test(l))  { out.push(<p key={i} style={{ fontWeight:700, fontSize:14, color:"#fbbf24", margin:"12px 0 4px" }}>{l.replace(/^##\s/,"")}</p>); }
+    else if (/^#\s/.test(l))   { out.push(<p key={i} style={{ fontWeight:700, fontSize:15, color:"#fbbf24", margin:"14px 0 6px" }}>{l.replace(/^#\s/,"")}</p>); }
+    else if (/^[-*]\s/.test(l)){ out.push(<div key={i} style={{ display:"flex", gap:8, margin:"2px 0" }}><span style={{ color:"#f59e0b", flexShrink:0 }}>•</span><span>{renderInline(l.replace(/^[-*]\s/,""))}</span></div>); }
+    else if (/^\d+\.\s/.test(l)){ const n=l.match(/^(\d+)\.\s/)[1]; out.push(<div key={i} style={{ display:"flex", gap:8, margin:"2px 0" }}><span style={{ color:"#f59e0b", flexShrink:0, minWidth:16 }}>{n}.</span><span>{renderInline(l.replace(/^\d+\.\s/,""))}</span></div>); }
+    else if (l.trim()==="")    { out.push(<div key={i} style={{ height:6 }}/>); }
+    else                       { out.push(<p key={i} style={{ margin:"2px 0", lineHeight:1.65 }}>{renderInline(l)}</p>); }
+    i++;
+  }
+  return <div style={{ fontSize:13, color:"#d4d4d8" }}>{out}</div>;
+}
+
+function renderInline(text) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((p, i) => {
+    if (/^\*\*/.test(p)) return <strong key={i} style={{ color:"#e4e4e7", fontWeight:700 }}>{p.slice(2,-2)}</strong>;
+    if (/^`/.test(p))    return <code key={i} style={{ background:"#27272a", padding:"1px 5px", borderRadius:4, fontSize:12, color:"#fb923c" }}>{p.slice(1,-1)}</code>;
+    return p;
+  });
+}
+
 // ── AI Chat Panel ──────────────────────────────────────
-// Calls the Anthropic API directly in the browser, using the transcript as context.
-function AIChatPanel({ rec }) {
+function AIChatPanel({ rec, onAnalyse, analysing }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [loading, setLoading]   = useState(false);
+  const [streaming, setStreaming] = useState("");
+  const [copied, setCopied]     = useState(null);
   const bottomRef               = useRef(null);
+  const hasTranscript           = !!rec.transcript;
 
   const SYSTEM = `You are an intelligent assistant helping a user analyse their voice recording.
 
 Recording title: ${rec.title || "Untitled"}
 Date: ${fmtDate(rec.createdAt)}
 Duration: ${rec.duration > 0 ? fmtTime(Math.round(rec.duration)) : "unknown"}
-${rec.summary ? `\nExisting summary: ${rec.summary}` : ""}
+${rec.summary ? `\nSummary: ${rec.summary}` : ""}
 ${rec.tags?.length ? `\nTags: ${rec.tags.join(", ")}` : ""}
-${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet — the user may ask you to help summarise based on limited info.)"}
+${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet.)"}
 
-Help the user understand, analyse, and get value from this recording. You can:
-- Answer questions about what was discussed
-- Extract key decisions, action items, or insights
-- Rewrite or reformat parts of the transcript
-- Suggest follow-ups or next steps
-- Summarise specific sections
-Be concise, direct, and conversational.`;
+Help the user understand and get value from this recording. Be concise, direct, and conversational.
+Format responses clearly — use bullet points and headers where helpful.`;
 
   const STARTERS = [
     "What were the main decisions made?",
@@ -379,40 +404,93 @@ Be concise, direct, and conversational.`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, streaming, loading]);
+
+  const copyMsg = (text, idx) => {
+    navigator.clipboard.writeText(text).then(() => { setCopied(idx); setTimeout(() => setCopied(null), 2000); });
+  };
 
   const send = async (text) => {
     const userMsg = text || input.trim();
-    if (!userMsg) return;
+    if (!userMsg || loading) return;
     setInput("");
 
     const newMessages = [...messages, { role: "user", content: userMsg }];
     setMessages(newMessages);
     setLoading(true);
+    setStreaming("");
 
     try {
-      const res = await authFetch(`${API}/chat`, {
+      const res = await authFetch(`${API}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ system: SYSTEM, messages: newMessages }),
       });
-      const data = await res.json();
-      const reply = data.content || "Sorry, I couldn't generate a response.";
-      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        // SSE format: "data: token\n\n"
+        chunk.split("\n").forEach(line => {
+          if (line.startsWith("data: ")) {
+            const token = line.slice(6);
+            if (token === "[DONE]") return;
+            full += token;
+            setStreaming(full);
+          }
+        });
+      }
+
+      setMessages(prev => [...prev, { role: "assistant", content: full }]);
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Error connecting to AI. Please try again." }]);
     } finally {
       setLoading(false);
+      setStreaming("");
     }
   };
+
+  // No transcript gate
+  if (!hasTranscript) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+      height:"100%", gap:16, padding:20, textAlign:"center" }}>
+      <div style={{ width:52, height:52, borderRadius:"50%", background:"rgba(167,139,250,.1)",
+        border:"1px solid rgba(167,139,250,.25)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <svg width="24" height="24" fill="none" stroke="#a78bfa" strokeWidth="1.5" viewBox="0 0 24 24">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <div>
+        <p style={{ fontSize:14, fontWeight:600, color:"#e4e4e7", margin:"0 0 6px" }}>No transcript yet</p>
+        <p style={{ fontSize:12, color:"#52525b", margin:0, lineHeight:1.6 }}>
+          Run AI analysis first so Ask AI has content to work with.
+        </p>
+      </div>
+      <button onClick={() => onAnalyse(rec._id)} disabled={analysing} style={{
+        display:"flex", alignItems:"center", gap:8, padding:"10px 22px",
+        borderRadius:12, border:"none", cursor: analysing ? "default" : "pointer",
+        background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"white",
+        fontSize:13, fontWeight:600, fontFamily:"'DM Sans',sans-serif", opacity: analysing ? 0.6 : 1,
+      }}>
+        {analysing ? "Analysing…" : "✦ Run AI Analysis"}
+      </button>
+    </div>
+  );
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", minHeight:0 }}>
 
-      {/* Starter prompts — shown only when no messages yet */}
+      {/* Starter prompts */}
       {messages.length === 0 && (
         <div style={{ marginBottom:16, animation:"fadeUp 0.25s ease" }}>
-          <p style={{ fontSize:12, color:"#52525b", marginBottom:10 }}>Ask anything about this recording, or try a suggestion:</p>
+          <p style={{ fontSize:11, color:"#52525b", marginBottom:10, fontWeight:500 }}>Ask anything about this recording:</p>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {STARTERS.map((s, i) => (
               <button key={i} onClick={() => send(s)} style={{
@@ -421,7 +499,7 @@ Be concise, direct, and conversational.`;
                 color:"#a1a1aa", fontSize:12, cursor:"pointer",
                 fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
               }}
-              onMouseEnter={e=>{ e.currentTarget.style.borderColor="rgba(245,158,11,.4)"; e.currentTarget.style.color="#fbbf24"; }}
+              onMouseEnter={e=>{ e.currentTarget.style.borderColor="rgba(167,139,250,.4)"; e.currentTarget.style.color="#c4b5fd"; }}
               onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#a1a1aa"; }}>
                 {s}
               </button>
@@ -432,40 +510,49 @@ Be concise, direct, and conversational.`;
 
       {/* Message thread */}
       {messages.length > 0 && (
-        <div style={{ flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:10, marginBottom:12, minHeight:0 }}>
+        <div style={{ flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:12, marginBottom:12, minHeight:0 }}>
           {messages.map((m, i) => (
-            <div key={i} style={{
-              display:"flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-              animation:"fadeUp 0.2s ease",
-            }}>
+            <div key={i} style={{ display:"flex", flexDirection:"column",
+              alignItems: m.role === "user" ? "flex-end" : "flex-start",
+              animation:"fadeUp 0.2s ease", gap:4 }}>
               <div style={{
-                maxWidth:"85%", padding:"10px 14px", borderRadius:14,
-                background: m.role === "user"
-                  ? "linear-gradient(135deg,#f59e0b,#fb923c)"
-                  : "#18181b",
+                maxWidth:"88%", padding:"10px 14px", borderRadius:14,
+                background: m.role === "user" ? "linear-gradient(135deg,#f59e0b,#fb923c)" : "#18181b",
                 border: m.role === "assistant" ? "1px solid #27272a" : "none",
-                fontSize:13, color: m.role === "user" ? "white" : "#d4d4d8",
-                lineHeight:1.65, whiteSpace:"pre-wrap",
+                color: m.role === "user" ? "white" : "#d4d4d8",
+                lineHeight:1.65,
                 borderBottomRightRadius: m.role === "user" ? 4 : 14,
                 borderBottomLeftRadius:  m.role === "assistant" ? 4 : 14,
               }}>
-                {m.content}
+                {m.role === "assistant" ? <Markdown text={m.content}/> : <span style={{ fontSize:13 }}>{m.content}</span>}
               </div>
+              {m.role === "assistant" && (
+                <button onClick={() => copyMsg(m.content, i)} style={{
+                  background:"none", border:"none", cursor:"pointer", color: copied===i ? "#a78bfa" : "#3f3f46",
+                  fontSize:11, padding:"2px 6px", borderRadius:6, display:"flex", alignItems:"center", gap:4,
+                  transition:"color 0.2s",
+                }}>
+                  {copied===i ? "✓ Copied" : "Copy"}
+                </button>
+              )}
             </div>
           ))}
 
+          {/* Streaming token display */}
           {loading && (
-            <div style={{ display:"flex", justifyContent:"flex-start", animation:"fadeUp 0.2s ease" }}>
-              <div style={{ padding:"10px 16px", borderRadius:14, borderBottomLeftRadius:4,
-                background:"#18181b", border:"1px solid #27272a", display:"flex", gap:5, alignItems:"center" }}>
-                {[0,1,2].map(j => (
-                  <div key={j} style={{
-                    width:6, height:6, borderRadius:"50%", background:"#52525b",
-                    animationName:"waveA", animationDuration:"1s",
-                    animationDelay:`${j*0.18}s`, animationIterationCount:"infinite",
-                    animationTimingFunction:"ease-in-out",
-                  }}/>
-                ))}
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, animation:"fadeUp 0.2s ease" }}>
+              <div style={{ maxWidth:"88%", padding:"10px 14px", borderRadius:14, borderBottomLeftRadius:4,
+                background:"#18181b", border:"1px solid #27272a" }}>
+                {streaming
+                  ? <Markdown text={streaming + "▌"}/>
+                  : <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+                      {[0,1,2].map(j=>(
+                        <div key={j} style={{ width:6,height:6,borderRadius:"50%",background:"#52525b",
+                          animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
+                          animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>
+                      ))}
+                    </div>
+                }
               </div>
             </div>
           )}
@@ -475,7 +562,7 @@ Be concise, direct, and conversational.`;
       )}
 
       {/* Input row */}
-      <div style={{ display:"flex", gap:8, flexShrink:0, marginTop: messages.length === 0 ? 12 : 0 }}>
+      <div style={{ display:"flex", gap:8, flexShrink:0, marginTop: messages.length === 0 ? 8 : 0 }}>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -488,22 +575,17 @@ Be concise, direct, and conversational.`;
             color:"#d4d4d8", outline:"none", fontFamily:"'DM Sans',sans-serif",
             opacity: loading ? 0.6 : 1,
           }}
-          onFocus={e=>e.target.style.borderColor="rgba(245,158,11,.5)"}
+          onFocus={e=>e.target.style.borderColor="rgba(167,139,250,.5)"}
           onBlur={e=>e.target.style.borderColor="#27272a"}
         />
-        <button
-          onClick={() => send()}
-          disabled={loading || !input.trim()}
-          style={{
-            width:42, height:42, borderRadius:12, border:"none", flexShrink:0,
-            background: input.trim() && !loading ? "linear-gradient(135deg,#f59e0b,#fb923c)" : "#27272a",
-            cursor: input.trim() && !loading ? "pointer" : "default",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            transition:"background 0.2s",
-          }}>
+        <button onClick={() => send()} disabled={loading || !input.trim()} style={{
+          width:42, height:42, borderRadius:12, border:"none", flexShrink:0,
+          background: input.trim() && !loading ? "linear-gradient(135deg,#a78bfa,#7c3aed)" : "#27272a",
+          cursor: input.trim() && !loading ? "pointer" : "default",
+          display:"flex", alignItems:"center", justifyContent:"center", transition:"background 0.2s",
+        }}>
           <svg width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
           </svg>
         </button>
       </div>
@@ -806,7 +888,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
 
               {/* Chat component — fills remaining space */}
               <div style={{ flex:1, display:"flex", flexDirection:"column", minHeight:0 }}>
-                <AIChatPanel rec={rec} />
+                <AIChatPanel rec={rec} onAnalyse={onAnalyse} analysing={analysing} />
               </div>
             </div>
           )}
