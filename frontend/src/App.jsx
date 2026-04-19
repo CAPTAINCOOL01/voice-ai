@@ -46,15 +46,15 @@ function LoginPage({ onLogin }) {
     <div style={{ minHeight:"100vh", background:"#09090b", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap'); *{box-sizing:border-box;margin:0;padding:0}`}</style>
       <div style={{ width:"100%", maxWidth:380, padding:"0 20px" }}>
-        {/* Logo */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, justifyContent:"center", marginBottom:40 }}>
+        {/* Logo — click to go to landing page */}
+        <a href="/" style={{ display:"flex", alignItems:"center", gap:10, justifyContent:"center", marginBottom:40, textDecoration:"none" }}>
           <div style={{ width:40, height:40, borderRadius:14, background:"linear-gradient(135deg,#f59e0b,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
           </div>
           <span style={{ fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:20, color:"#fff" }}>VoiceNote AI</span>
-        </div>
+        </a>
 
         {/* Card */}
         <div style={{ background:"#18181b", border:"1px solid #27272a", borderRadius:20, padding:28 }}>
