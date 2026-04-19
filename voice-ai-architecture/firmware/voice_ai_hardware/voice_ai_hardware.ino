@@ -421,9 +421,9 @@ void loop() {
       wavFile.flush();
       wavFile.close();
       Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
+      sendStatus("idle");   // notify frontend immediately before slow upload
       finalizeWav(currentFile);
       sendToBackend(currentFile, dur);
-      sendStatus("idle");
     }
   }
 
