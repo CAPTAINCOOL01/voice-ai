@@ -1432,23 +1432,23 @@ export default function App() {
               }}/>
               {deviceOnline ? "Live" : "Offline"}
             </div>
-            {/* Recording pill — only visible when ESP32 is recording */}
-            {deviceRecording && (
-              <div title="ESP32 is recording right now" style={{
+            {/* Recording pill — always visible */}
+            <div title={deviceRecording ? "ESP32 is recording right now" : "ESP32 is not recording"} style={{
                 display:"flex", alignItems:"center", gap:6, fontSize:11, cursor:"default",
                 padding:"4px 10px", borderRadius:999,
-                background:"rgba(239,68,68,0.12)",
-                border:"1px solid rgba(239,68,68,0.3)",
-                color:"#f87171",
+                background: deviceRecording ? "rgba(239,68,68,0.12)" : "transparent",
+                border: deviceRecording ? "1px solid rgba(239,68,68,0.3)" : "1px solid #27272a",
+                transition:"all 0.4s",
+                color: deviceRecording ? "#f87171" : "#52525b",
               }}>
                 <span style={{
                   width:7, height:7, borderRadius:"50%", display:"inline-block",
-                  background:"#ef4444",
-                  animation:"breathe 1s ease-in-out infinite",
+                  transition:"background 0.4s",
+                  background: deviceRecording ? "#ef4444" : "#3f3f46",
+                  animation: deviceRecording ? "breathe 1s ease-in-out infinite" : "none",
                 }}/>
-                Recording
+                {deviceRecording ? "Recording" : "Idle"}
               </div>
-            )}
             <a href="/app/settings" style={{
               background:"none", border:"1px solid #27272a", borderRadius:8,
               padding:"5px 10px", color:"#71717a", cursor:"pointer", display:"flex", alignItems:"center",
