@@ -252,7 +252,7 @@ void sendStatus(const char* state) {
 void heartbeatTask(void* param) {
   while (1) {
     sendStatus(recording ? "recording" : "online");
-    vTaskDelay(pdMS_TO_TICKS(1500));
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
