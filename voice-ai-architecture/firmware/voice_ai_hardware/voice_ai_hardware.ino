@@ -229,6 +229,7 @@ void setupI2S() {
    DEVICE STATUS — send state to backend
    ───────────────────────────────────────── */
 // Send explicit state: "online" | "recording" | "idle"
+// Used for one-off status changes (start/stop recording)
 void sendStatus(const char* state) {
   if (WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client;
@@ -247,12 +248,40 @@ void sendStatus(const char* state) {
   client.stop();
 }
 
-// Heartbeat task: sends "online" every 3s when idle
-// Pauses during recording — HTTPS blocks SD SPI writes
+// Heartbeat task — persistent TLS connection, reused every ping
+// Avoids full TLS handshake on every heartbeat (was causing 1-3s gaps → offline flicker)
 void heartbeatTask(void* param) {
+  WiFiClientSecure* client = new WiFiClientSecure();
+  client->setInsecure();
+
   while (1) {
-    sendStatus(recording ? "recording" : "online");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    if (WiFi.status() != WL_CONNECTED) continue;
+
+    // Reconnect only when the connection has dropped
+    if (!client->connected()) {
+      client->stop();
+      if (!client->connect(BACKEND_HOST, BACKEND_PORT)) continue;
+    }
+
+    const char* state = recording ? "recording" : "online";
+    String body = String("{\"status\":\"") + state + "\"}";
+
+    client->printf("POST /device/heartbeat HTTP/1.1\r\n");
+    client->printf("Host: %s\r\n",            BACKEND_HOST);
+    client->printf("X-Api-Key: %s\r\n",       ESP32_API_KEY);
+    client->printf("Content-Type: application/json\r\n");
+    client->printf("Content-Length: %d\r\n",  body.length());
+    client->printf("Connection: keep-alive\r\n\r\n");
+    client->print(body);
+
+    // Drain the response (required to keep connection alive)
+    unsigned long t = millis();
+    while (millis() - t < 2000) {
+      if (client->available()) { while (client->available()) client->read(); break; }
+      delay(10);
+    }
   }
 }
 
