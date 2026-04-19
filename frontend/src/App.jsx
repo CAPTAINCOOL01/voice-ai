@@ -1145,15 +1145,21 @@ export default function App() {
   const timerRef    = useRef(null);
   const durationRef = useRef(0);
 
-  const fetchRecordings = useCallback(async () => {
+  const fetchRecordings = useCallback(async (isRetry = false) => {
     try {
-      setLoadingRecs(true); setFetchError(null);
+      setLoadingRecs(true);
+      if (!isRetry) setFetchError(null);
       const res  = await authFetch(`${API}/recordings`);
       if (!res.ok) throw new Error("Server error");
       const data = await res.json();
       setRecordings(Array.isArray(data) ? data : []);
-    } catch { setFetchError("Cannot connect — make sure server is running on port 5000."); }
-    finally   { setLoadingRecs(false); }
+      setFetchError(null);
+    } catch {
+      setFetchError("waking");
+      // Auto-retry every 5s while server is waking up
+      setTimeout(() => fetchRecordings(true), 5000);
+    }
+    finally { setLoadingRecs(false); }
   }, []);
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
@@ -1739,9 +1745,13 @@ export default function App() {
           )}
 
           {fetchError && (
-            <div style={{ background:"rgba(239,68,68,.08)", border:"1px solid rgba(239,68,68,.2)",
-              borderRadius:14, padding:16, color:"#f87171", fontSize:13, marginBottom:16 }}>
-              {fetchError}
+            <div style={{ background:"rgba(245,158,11,.06)", border:"1px solid rgba(245,158,11,.2)",
+              borderRadius:14, padding:16, color:"#fbbf24", fontSize:13, marginBottom:16,
+              display:"flex", alignItems:"center", gap:10 }}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink:0, animation:"spin 1.5s linear infinite" }}>
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+              </svg>
+              Server is waking up — your recordings will load in a moment…
             </div>
           )}
 
