@@ -138,12 +138,14 @@ async function auth(req, res, next) {
   if (apiKey) {
     // Check global ESP32 key from env — attach admin user so req.user._id exists
     if (ESP32_KEY && apiKey === ESP32_KEY) {
-      req.user = await User.findOne({ username: APP_USER }) || await User.findOne({ provider: "local" }) || await User.findOne();
+      req.user = await User.findOne({ username: APP_USER }).maxTimeMS(8000)
+               || await User.findOne({ provider: "local" }).maxTimeMS(8000)
+               || await User.findOne().maxTimeMS(8000);
       if (!req.user) return res.status(500).json({ error: "No user found for ESP32 key" });
       return next();
     }
     // Check per-user API keys in DB
-    const userByKey = await User.findOne({ apiKey });
+    const userByKey = await User.findOne({ apiKey }).maxTimeMS(8000);
     if (userByKey) { req.user = userByKey; return next(); }
   }
   const token = req.headers.authorization?.split(" ")[1] || req.query.token;
@@ -236,7 +238,7 @@ setInterval(() => {
   if (deviceState !== "online") return;
   const sinceLastSeen    = deviceLastSeen ? Date.now() - deviceLastSeen.getTime() : Infinity;
   const sinceRecordingEnd = recordingEndedAt ? Date.now() - recordingEndedAt : Infinity;
-  const timeout          = sinceRecordingEnd < 20000 ? 20000 : 10000;
+  const timeout          = sinceRecordingEnd < 30000 ? 30000 : 15000;
   if (sinceLastSeen > timeout) setDeviceState("offline");
 }, 500);
 
@@ -683,4 +685,6 @@ function broadcast(data) {
   });
 }
 
+// Give ESP32 uploads up to 90s to process; prevents silent hangs on Render cold-starts
+server.timeout = 90000;
 server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));

@@ -114,13 +114,14 @@ void finalizeWav(const char* path) {
 /* ─────────────────────────────────────────
    HTTP UPLOAD
    ───────────────────────────────────────── */
-void sendToBackend(const char* path, uint32_t durationSecs) {
+// Returns true on success, false on failure
+bool sendToBackend(const char* path, uint32_t durationSecs) {
   Serial.println("[HTTP] Uploading to backend...");
 
-  if (WiFi.status() != WL_CONNECTED) { Serial.println("[HTTP] ✗ No WiFi — skipping upload"); return; }
+  if (WiFi.status() != WL_CONNECTED) { Serial.println("[HTTP] ✗ No WiFi — skipping upload"); return false; }
 
   File f = SD.open(path);
-  if (!f) { Serial.println("[HTTP] ✗ Cannot open WAV file"); return; }
+  if (!f) { Serial.println("[HTTP] ✗ Cannot open WAV file"); return false; }
   Serial.printf("[HTTP] File: %s (%u bytes)\n", path, f.size());
 
   String filename = String(path);
@@ -142,10 +143,11 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
 
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(180);  // 3-minute socket timeout for slow Render cold-starts
   Serial.printf("[HTTP] Connecting to %s ...\n", BACKEND_HOST);
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
     Serial.println("[HTTP] ✗ Cannot reach backend");
-    f.close(); return;
+    f.close(); return false;
   }
   Serial.println("[HTTP] ✓ Connected");
 
@@ -171,22 +173,96 @@ void sendToBackend(const char* path, uint32_t durationSecs) {
   client.print(durPart);
   client.print(endPart);
 
-  Serial.println("[HTTP] Waiting for server response...");
+  // Wait up to 120s — Render free tier needs time to process + upload to R2
+  Serial.println("[HTTP] Waiting for server response (up to 120s)...");
   uint32_t t = millis();
-  while (!client.available() && millis() - t < 30000) delay(10);
+  while (!client.available() && millis() - t < 120000) {
+    delay(10);
+    if ((millis() - t) % 10000 < 10)
+      Serial.printf("[HTTP] Still waiting... %us elapsed\n", (millis() - t) / 1000);
+  }
 
-  if (!client.available()) { Serial.println("[HTTP] ✗ No response — timeout"); client.stop(); return; }
+  if (!client.available()) {
+    Serial.println("[HTTP] ✗ No response — timeout");
+    client.stop();
+    return false;
+  }
 
   String response = "";
   while (client.available()) response += (char)client.read();
   client.stop();
 
-  if (response.indexOf("\"status\":\"ok\"") >= 0)
+  if (response.indexOf("\"status\":\"ok\"") >= 0) {
     Serial.println("[HTTP] ✓ Upload successful!");
-  else {
+    return true;
+  } else {
     Serial.println("[HTTP] ✗ Upload failed. Server said:");
     Serial.println(response.substring(0, 200));
+    return false;
   }
+}
+
+// Mark a WAV as successfully uploaded by creating a sibling .done file
+void markUploaded(const char* wavPath) {
+  String donePath = String(wavPath);
+  donePath.replace(".wav", ".done");
+  File f = SD.open(donePath.c_str(), FILE_WRITE);
+  if (f) f.close();
+}
+
+bool isUploaded(const char* wavPath) {
+  String donePath = String(wavPath);
+  donePath.replace(".wav", ".done");
+  return SD.exists(donePath.c_str());
+}
+
+// Upload any WAV on the SD card that doesn't have a .done marker
+void retryPendingUploads() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  File root = SD.open("/");
+  if (!root) return;
+
+  int pending = 0;
+  while (true) {
+    File f = root.openNextFile();
+    if (!f) break;
+    String name = f.name();
+    f.close();
+    if (name.endsWith(".wav") && !isUploaded(("/" + name).c_str())) pending++;
+  }
+  root.close();
+
+  if (pending == 0) { Serial.println("[RETRY] No pending uploads."); return; }
+  Serial.printf("[RETRY] Found %d un-uploaded recording(s) — uploading now...\n", pending);
+
+  root = SD.open("/");
+  while (true) {
+    File f = root.openNextFile();
+    if (!f) break;
+    String name = f.name();
+    uint32_t sz = f.size();
+    f.close();
+    if (!name.endsWith(".wav")) continue;
+    String fullPath = "/" + name;
+    if (isUploaded(fullPath.c_str())) continue;
+
+    // Skip and silently mark corrupt/empty files (must have audio beyond the 44-byte header)
+    if (sz <= 1000) {
+      Serial.printf("[RETRY] Skipping %s — too small (%u bytes), marking done\n", fullPath.c_str(), sz);
+      markUploaded(fullPath.c_str());
+      continue;
+    }
+
+    // Estimate duration from file size: 16kHz * 2 bytes = 32000 bytes/sec
+    uint32_t dur = sz > 44 ? (sz - 44) / 32000 : 0;
+    Serial.printf("[RETRY] Uploading %s (%u bytes, ~%us)...\n", fullPath.c_str(), sz, dur);
+    if (sendToBackend(fullPath.c_str(), dur))
+      markUploaded(fullPath.c_str());
+    else
+      Serial.printf("[RETRY] ✗ Failed — will retry next boot\n");
+  }
+  root.close();
+  Serial.println("[RETRY] Done.");
 }
 
 /* ─────────────────────────────────────────
@@ -255,7 +331,7 @@ void heartbeatTask(void* param) {
   client->setInsecure();
 
   while (1) {
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(6000));
 
     if (WiFi.status() != WL_CONNECTED) continue;
 
@@ -354,6 +430,7 @@ void setup() {
 
     sendStatus("online");
     Serial.println("[STATUS] ✓ Sent online status to backend");
+    retryPendingUploads();
   } else {
     Serial.println("\n[WIFI] ✗ Could not connect — uploads will be skipped");
   }
@@ -452,7 +529,10 @@ void loop() {
       Serial.printf("[REC]  ✓ Recording stopped — duration: %us\n", dur);
       sendStatus("idle");   // notify frontend immediately before slow upload
       finalizeWav(currentFile);
-      sendToBackend(currentFile, dur);
+      if (sendToBackend(currentFile, dur))
+        markUploaded(currentFile);
+      else
+        Serial.println("[REC]  ✗ Upload failed — will retry on next boot");
     }
   }
 
