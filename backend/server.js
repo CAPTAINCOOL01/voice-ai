@@ -59,8 +59,16 @@ if (fs.existsSync(DIST)) {
 }
 
 // ── MongoDB ───────────────────────────────────────────────
+// Cache the ESP32 user after DB connects — eliminates per-request DB lookup in auth
+let esp32User = null;
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
+  .then(async () => {
+    console.log("✅ MongoDB connected");
+    esp32User = await User.findOne({ username: APP_USER })
+              || await User.findOne({ provider: "local" })
+              || await User.findOne();
+    console.log(`✅ ESP32 user cached: ${esp32User?.username}`);
+  })
   .catch(err => console.error("❌ MongoDB:", err));
 
 // ── Models ────────────────────────────────────────────────
@@ -138,9 +146,7 @@ async function auth(req, res, next) {
   if (apiKey) {
     // Check global ESP32 key from env — attach admin user so req.user._id exists
     if (ESP32_KEY && apiKey === ESP32_KEY) {
-      req.user = await User.findOne({ username: APP_USER }).maxTimeMS(8000)
-               || await User.findOne({ provider: "local" }).maxTimeMS(8000)
-               || await User.findOne().maxTimeMS(8000);
+      req.user = esp32User;
       if (!req.user) return res.status(500).json({ error: "No user found for ESP32 key" });
       return next();
     }
@@ -395,31 +401,28 @@ app.post("/upload", auth, upload.single("audio"), async (req, res) => {
 // ── POST /save — audio only, no AI ───────────────────────
 app.post("/save", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
+  const fileSizeBytes = fs.statSync(localPath).size;
+  const duration = parseFloat(req.body.duration) || 0;
+  console.log(`📥 /save received: ${filename}, size=${fileSizeBytes} bytes, duration=${duration}s`);
+
+  // Respond immediately so ESP32 doesn't hit Render's 30s idle timeout
+  // while we wait for R2 upload + MongoDB save
+  res.json({ status: "ok" });
+
+  // Background processing — errors logged but client already got 200
   try {
-    const fileSizeBytes = fs.statSync(localPath).size;
-    const duration = parseFloat(req.body.duration) || 0;
-    console.log(`📥 /save received: ${filename}, size=${fileSizeBytes} bytes, duration=${duration}s, user=${req.user._id}`);
-
-    // Validate minimum file size (at least 44 bytes header + some audio)
-    if (fileSizeBytes < 1000) {
-      console.warn(`⚠️  File too small (${fileSizeBytes} bytes) — likely empty recording`);
-    }
-
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
     console.log(`☁️  Uploaded to R2: ${filename}`);
-
     const title = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
-    const recording = await Recording.create({
+    await Recording.create({
       userId: req.user._id,
       filename, fileUrl, transcript: "", title,
       summary: "", tags: [], actionItems: [], duration,
     });
-    console.log(`✅ Saved to DB: ${recording._id}, filename=${filename}`);
-    res.json({ status: "ok", recording });
+    console.log(`✅ Saved to DB: ${filename}`);
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-    console.error("❌ Save:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Save (background):", err);
   }
 });
 
