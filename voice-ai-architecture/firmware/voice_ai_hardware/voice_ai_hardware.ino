@@ -31,6 +31,10 @@
 
 #define PIN_TOGGLE    8   // Toggle switch Common pin (HIGH = record, LOW = stop)
 
+#define PIN_LED_STATUS  0   // Green LED — device online / WiFi connected
+#define PIN_LED_REC    20   // Red LED   — recording in progress
+#define PIN_BAT_ADC     1   // Battery voltage divider input (100kΩ / 100kΩ to GND)
+
 /* ─────────────────────────────────────────
    AUDIO CONFIG
    ───────────────────────────────────────── */
@@ -302,6 +306,23 @@ void setupI2S() {
 }
 
 /* ─────────────────────────────────────────
+   BATTERY MONITOR
+   ───────────────────────────────────────── */
+// Voltage divider: BAT+ → 100kΩ → GPIO1 → 100kΩ → GND
+// Halves battery voltage so max 4.2V → 2.1V (within 3.3V ADC range)
+// LiPo discharge curve: 4.2V = 100%, 3.0V = 0%
+uint8_t readBatteryPercent() {
+  analogSetAttenuation(ADC_11db);  // 0–3.3V input range
+  int raw = analogRead(PIN_BAT_ADC);
+  float adcV  = (raw / 4095.0f) * 3.3f;
+  float batV  = adcV * 2.0f;         // undo the voltage divider
+  float pct   = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  if (pct <   0.0f) pct =   0.0f;
+  return (uint8_t)pct;
+}
+
+/* ─────────────────────────────────────────
    DEVICE STATUS — send state to backend
    ───────────────────────────────────────── */
 // Send explicit state: "online" | "recording" | "idle"
@@ -311,7 +332,8 @@ void sendStatus(const char* state) {
   WiFiClientSecure client;
   client.setInsecure();
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
-  String body = String("{\"status\":\"") + state + "\"}";
+  uint8_t bat = readBatteryPercent();
+  String body = String("{\"status\":\"") + state + "\",\"battery\":" + bat + "}";
   client.printf("POST /device/heartbeat HTTP/1.0\r\n");
   client.printf("Host: %s\r\n",           BACKEND_HOST);
   client.printf("X-Api-Key: %s\r\n",      ESP32_API_KEY);
@@ -342,7 +364,8 @@ void heartbeatTask(void* param) {
     }
 
     const char* state = recording ? "recording" : "online";
-    String body = String("{\"status\":\"") + state + "\"}";
+    uint8_t bat = readBatteryPercent();
+    String body = String("{\"status\":\"") + state + "\",\"battery\":" + bat + "}";
 
     client->printf("POST /device/heartbeat HTTP/1.1\r\n");
     client->printf("Host: %s\r\n",            BACKEND_HOST);
@@ -372,6 +395,15 @@ void setup() {
   Serial.println("      VoiceNote AI — ESP32-C3 Mini");
   Serial.println("==========================================");
   Serial.println("[BOOT] ✓ ESP32-C3 started");
+
+  // ── LEDs ──
+  pinMode(PIN_LED_STATUS, OUTPUT); digitalWrite(PIN_LED_STATUS, LOW);
+  pinMode(PIN_LED_REC,    OUTPUT); digitalWrite(PIN_LED_REC,    LOW);
+  Serial.println("[LED]  ✓ LEDs ready (status=GPIO0, rec=GPIO20)");
+
+  // ── Battery ADC ──
+  pinMode(PIN_BAT_ADC, INPUT);
+  Serial.printf("[BAT]  ✓ Battery ADC on GPIO1 — current: %d%%\n", readBatteryPercent());
 
   // ── Toggle Switch ──
   pinMode(PIN_TOGGLE, INPUT_PULLDOWN);
@@ -413,6 +445,7 @@ void setup() {
     if (millis() - wifiStart > 15000) break;
   }
   if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(PIN_LED_STATUS, HIGH);  // green ON — WiFi connected
     Serial.printf("\n[WIFI] ✓ Connected! IP: %s\n", WiFi.localIP().toString().c_str());
 
     // ── NTP Time Sync ──
@@ -511,7 +544,10 @@ void loop() {
         sdBufPos     = 0;
         writeWavHeader(wavFile);
         recording = true;
-        sendStatus("recording");
+        digitalWrite(PIN_LED_REC, HIGH);  // red LED on
+        // Don't call sendStatus here — it blocks the loop for 1-3s (TLS handshake)
+        // and causes the first seconds of audio to be dropped.
+        // The heartbeat task picks up the "recording" state within 6 seconds.
         Serial.printf("[REC]  ✓ Recording started → %s\n", currentFile);
       }
 
@@ -519,6 +555,7 @@ void loop() {
       lastToggleAct = millis();
       // ── STOP ──
       recording = false;
+      digitalWrite(PIN_LED_REC, LOW);   // red LED off
       uint32_t dur = (millis() - recStartMs) / 1000;
       if (sdBufPos > 0) {
         wavFile.write(sdBuf, sdBufPos);

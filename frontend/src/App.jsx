@@ -1800,6 +1800,7 @@ export default function App() {
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
   const [deviceRecording, setDeviceRecording] = useState(false);
+  const [deviceBattery,  setDeviceBattery]   = useState(null);
   const [currentPage, setCurrentPage] = useState("home");
   const [projects, setProjects] = useState([]);
 
@@ -1836,6 +1837,7 @@ export default function App() {
           const d = await r.json();
           applyState(d.state);
           setDeviceLastSeen(d.lastSeen);
+          if (d.battery !== undefined && d.battery !== null) setDeviceBattery(d.battery);
         } catch {}
       };
 
@@ -1844,6 +1846,7 @@ export default function App() {
           const d = JSON.parse(e.data);
           applyState(d.state);
           if (d.lastSeen) setDeviceLastSeen(d.lastSeen);
+          if (d.battery !== undefined && d.battery !== null) setDeviceBattery(d.battery);
         } catch {}
       };
 
@@ -2084,6 +2087,30 @@ export default function App() {
                 ))}
               </div>
             )}
+            {/* Battery indicator — only shown when device is online and battery is known */}
+            {deviceOnline && deviceBattery !== null && (() => {
+              const pct = deviceBattery;
+              const color = pct > 50 ? "#4ade80" : pct > 20 ? "#fbbf24" : "#f87171";
+              const bars  = Math.ceil(pct / 25);  // 0–4 filled bars
+              return (
+                <div title={`Battery: ${pct}%`} style={{
+                  display:"flex", alignItems:"center", gap:5, fontSize:11,
+                  padding:"4px 10px", borderRadius:999, cursor:"default",
+                  border:"1px solid #27272a", background:"transparent", color,
+                }}>
+                  {/* Battery icon */}
+                  <svg width="18" height="11" viewBox="0 0 18 11" fill="none">
+                    <rect x="0.5" y="0.5" width="15" height="10" rx="2" stroke={color} strokeWidth="1.2"/>
+                    <rect x="15.5" y="3" width="2" height="5" rx="1" fill={color}/>
+                    {[0,1,2,3].map(i => (
+                      <rect key={i} x={2 + i*3.2} y={2.5} width={2.5} height={6}
+                        rx="0.8" fill={i < bars ? color : "#27272a"}/>
+                    ))}
+                  </svg>
+                  {pct}%
+                </div>
+              );
+            })()}
             {/* Device online/offline pill */}
             <div title={
                 deviceOnline    ? `Device online · Last seen ${deviceLastSeen ? new Date(deviceLastSeen).toLocaleTimeString() : "just now"}` :

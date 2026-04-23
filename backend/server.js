@@ -264,15 +264,16 @@ app.post("/auth/login", async (req, res) => {
 // States: "offline" | "online" | "recording"
 let deviceState        = "offline";
 let deviceLastSeen     = null;
-let recordingEndedAt   = null;   // timestamp when device last left "recording" state
+let recordingEndedAt   = null;
+let deviceBattery      = null;   // 0-100 percentage, null = unknown
 
 function setDeviceState(newState) {
   if (deviceState === newState) return;
   if (deviceState === "recording" && newState !== "recording") {
-    recordingEndedAt = Date.now(); // start grace period
+    recordingEndedAt = Date.now();
   }
   deviceState = newState;
-  broadcast({ state: newState, lastSeen: deviceLastSeen });
+  broadcast({ state: newState, lastSeen: deviceLastSeen, battery: deviceBattery });
   console.log(`[DEVICE] State → ${newState}`);
 }
 
@@ -289,21 +290,29 @@ setInterval(() => {
 // POST /device/heartbeat — called by ESP32 every 1.5s (pauses during recording)
 app.post("/device/heartbeat", auth, (req, res) => {
   deviceLastSeen = new Date();
-  const status   = req.body?.status; // "online" | "recording" | "idle"
-  const legacy   = req.body?.recording; // backwards compat with old firmware
+  const status   = req.body?.status;
+  const legacy   = req.body?.recording;
+  const battery  = req.body?.battery;
 
-  if      (status === "recording")         setDeviceState("recording");
+  if (battery !== undefined && battery !== null) {
+    deviceBattery = Math.max(0, Math.min(100, Number(battery)));
+  }
+
+  if      (status === "recording")                   setDeviceState("recording");
   else if (status === "idle" || status === "online") setDeviceState("online");
-  else if (legacy === true)                setDeviceState("recording");
-  else if (legacy === false)               setDeviceState("online");
-  else                                     setDeviceState("online"); // bare ping = online
+  else if (legacy === true)                          setDeviceState("recording");
+  else if (legacy === false)                         setDeviceState("online");
+  else                                               setDeviceState("online");
+
+  // Always broadcast latest battery even if state didn't change
+  broadcast({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery });
 
   res.json({ status: "ok" });
 });
 
 // GET /device/status — REST fallback for initial page load
 app.get("/device/status", auth, (req, res) => {
-  res.json({ state: deviceState, lastSeen: deviceLastSeen });
+  res.json({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery });
 });
 
 // ── OAuth helper — issue JWT and redirect to frontend ────
@@ -838,7 +847,7 @@ wss.on("connection", (ws, req) => {
     ws.close(1008, "Unauthorized"); return;
   }
   // Send current state immediately on connect
-  ws.send(JSON.stringify({ state: deviceState, lastSeen: deviceLastSeen }));
+  ws.send(JSON.stringify({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery }));
   ws.on("error", () => {}); // suppress unhandled errors
 });
 
