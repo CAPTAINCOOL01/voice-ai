@@ -354,28 +354,59 @@ const ghostBtn = {
 
 // ── Simple markdown renderer ────────────────────────────
 function Markdown({ text }) {
-  const lines = text.split("\n");
+  // Pre-process: fix inline bullets "- item- item" → proper newlines
+  const cleaned = text
+    .replace(/([^\n])(- \*\*)/g, "$1\n- **")
+    .replace(/([^\n])(- [A-Z])/g, "$1\n- $2");
+
+  const lines = cleaned.split("\n");
   const out = [];
   let i = 0;
   while (i < lines.length) {
     const l = lines[i];
-    if (/^###\s/.test(l))      { out.push(<p key={i} style={{ fontWeight:700, fontSize:11, color:"#f59e0b", margin:"14px 0 6px", textTransform:"uppercase", letterSpacing:"0.06em" }}>{l.replace(/^###\s/,"")}</p>); }
-    else if (/^##\s/.test(l))  { out.push(<p key={i} style={{ fontWeight:700, fontSize:13, color:"#fbbf24", margin:"16px 0 8px", borderBottom:"1px solid #2a2a2e", paddingBottom:5 }}>{l.replace(/^##\s/,"")}</p>); }
-    else if (/^#\s/.test(l))   { out.push(<p key={i} style={{ fontWeight:700, fontSize:15, color:"#fbbf24", margin:"16px 0 8px" }}>{l.replace(/^#\s/,"")}</p>); }
-    else if (/^[-*]\s/.test(l)){ out.push(<div key={i} style={{ display:"flex", gap:10, margin:"5px 0", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0, marginTop:1 }}>•</span><span style={{ lineHeight:1.7 }}>{renderInline(l.replace(/^[-*]\s/,""))}</span></div>); }
-    else if (/^\d+\.\s/.test(l)){ const n=l.match(/^(\d+)\.\s/)[1]; out.push(<div key={i} style={{ display:"flex", gap:10, margin:"5px 0", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0, minWidth:18, marginTop:1 }}>{n}.</span><span style={{ lineHeight:1.7 }}>{renderInline(l.replace(/^\d+\.\s/,""))}</span></div>); }
-    else if (l.trim()==="")    { out.push(<div key={i} style={{ height:8 }}/>); }
-    else                       { out.push(<p key={i} style={{ margin:"4px 0", lineHeight:1.75 }}>{renderInline(l)}</p>); }
+    if (/^###\s/.test(l)) {
+      out.push(<p key={i} style={{ fontWeight:700, fontSize:11, color:"#9ca3af", margin:"18px 0 6px", textTransform:"uppercase", letterSpacing:"0.08em" }}>{l.replace(/^###\s/,"")}</p>);
+    } else if (/^##\s/.test(l)) {
+      out.push(<p key={i} style={{ fontWeight:700, fontSize:14, color:"#f4f4f5", margin:"20px 0 10px 0" }}>{l.replace(/^##\s/,"")}</p>);
+    } else if (/^#\s/.test(l)) {
+      out.push(<p key={i} style={{ fontWeight:800, fontSize:15, color:"#ffffff", margin:"20px 0 10px 0" }}>{l.replace(/^#\s/,"")}</p>);
+    } else if (/^[-*]\s/.test(l)) {
+      out.push(
+        <div key={i} style={{ display:"flex", gap:10, margin:"4px 0 4px 4px", alignItems:"flex-start" }}>
+          <span style={{ color:"#9ca3af", flexShrink:0, marginTop:3, fontSize:11 }}>●</span>
+          <span style={{ lineHeight:1.75, color:"#e4e4e7" }}>{renderInline(l.replace(/^[-*]\s/,""))}</span>
+        </div>
+      );
+    } else if (/^\s{2,}[-*]\s/.test(l)) {
+      out.push(
+        <div key={i} style={{ display:"flex", gap:10, margin:"3px 0 3px 22px", alignItems:"flex-start" }}>
+          <span style={{ color:"#6b7280", flexShrink:0, marginTop:3, fontSize:9 }}>○</span>
+          <span style={{ lineHeight:1.75, color:"#d1d5db" }}>{renderInline(l.replace(/^\s+[-*]\s/,""))}</span>
+        </div>
+      );
+    } else if (/^\d+\.\s/.test(l)) {
+      const n = l.match(/^(\d+)\.\s/)[1];
+      out.push(
+        <div key={i} style={{ display:"flex", gap:10, margin:"5px 0 5px 4px", alignItems:"flex-start" }}>
+          <span style={{ color:"#9ca3af", flexShrink:0, minWidth:18, marginTop:1, fontSize:12, fontWeight:600 }}>{n}.</span>
+          <span style={{ lineHeight:1.75, color:"#e4e4e7" }}>{renderInline(l.replace(/^\d+\.\s/,""))}</span>
+        </div>
+      );
+    } else if (l.trim()==="") {
+      out.push(<div key={i} style={{ height:10 }}/>);
+    } else {
+      out.push(<p key={i} style={{ margin:"4px 0", lineHeight:1.8, color:"#e4e4e7" }}>{renderInline(l)}</p>);
+    }
     i++;
   }
-  return <div style={{ fontSize:13, color:"#d4d4d8" }}>{out}</div>;
+  return <div style={{ fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>{out}</div>;
 }
 
 function renderInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
   return parts.map((p, i) => {
-    if (/^\*\*/.test(p)) return <strong key={i} style={{ color:"#e4e4e7", fontWeight:700 }}>{p.slice(2,-2)}</strong>;
-    if (/^`/.test(p))    return <code key={i} style={{ background:"#27272a", padding:"1px 5px", borderRadius:4, fontSize:12, color:"#fb923c" }}>{p.slice(1,-1)}</code>;
+    if (/^\*\*/.test(p)) return <strong key={i} style={{ color:"#ffffff", fontWeight:700 }}>{p.slice(2,-2)}</strong>;
+    if (/^`/.test(p))    return <code key={i} style={{ background:"#27272a", padding:"2px 6px", borderRadius:4, fontSize:12, color:"#fb923c", fontFamily:"monospace" }}>{p.slice(1,-1)}</code>;
     return p;
   });
 }
@@ -400,13 +431,14 @@ ${rec.tags?.length ? `\nTags: ${rec.tags.join(", ")}` : ""}
 ${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet.)"}
 
 FORMATTING RULES — follow strictly:
-- Use ## for section headers
-- Use bullet points (- ) for lists, one item per line
-- Use **bold** only for key terms or important phrases
-- Put a blank line between every section
-- Never write long paragraphs — break into short bullets
-- Keep responses concise and scannable
-- Do not start sentences with "The speaker" — write directly`;
+- Always use ## for section headers (e.g. ## Main Decisions)
+- Every bullet MUST be on its own new line starting with "- "
+- Never put multiple bullets on one line separated by dashes
+- Use **bold** only for key terms
+- Add a blank line between each section
+- Keep each bullet point short — max 1 sentence
+- Never write long paragraphs
+- Do not start with "The speaker" — write directly and clearly`;
 
   const STARTERS = [
     "What were the main decisions made?",
@@ -531,30 +563,39 @@ FORMATTING RULES — follow strictly:
               animation:"fadeUp 0.2s ease", gap:4 }}>
               {m.role === "user" ? (
                 <div style={{
-                  maxWidth:"82%", padding:"10px 14px", borderRadius:18, borderBottomRightRadius:4,
+                  maxWidth:"80%", padding:"10px 16px", borderRadius:20, borderBottomRightRadius:5,
                   background:"linear-gradient(135deg,#f59e0b,#fb923c)",
-                  color:"white", fontSize:13, lineHeight:1.6,
+                  color:"white", fontSize:13, lineHeight:1.65, fontWeight:500,
                 }}>
                   {m.content}
                 </div>
               ) : (
-                <div style={{ maxWidth:"95%", display:"flex", flexDirection:"column", gap:6 }}>
-                  <div style={{
-                    padding:"14px 16px", borderRadius:18, borderBottomLeftRadius:4,
-                    background:"#1c1c1f", border:"1px solid #2a2a2e",
-                    lineHeight:1.8,
-                  }}>
-                    <Markdown text={m.content}/>
+                <div style={{ width:"100%", display:"flex", gap:10, alignItems:"flex-start" }}>
+                  {/* AI avatar */}
+                  <div style={{ width:28, height:28, borderRadius:"50%", flexShrink:0, marginTop:2,
+                    background:"linear-gradient(135deg,#a78bfa,#7c3aed)",
+                    display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                    </svg>
                   </div>
-                  <button onClick={() => copyMsg(m.content, i)} style={{
-                    background:"none", border:"none", cursor:"pointer",
-                    color: copied===i ? "#a78bfa" : "#3f3f46",
-                    fontSize:11, padding:"2px 4px", borderRadius:6,
-                    display:"flex", alignItems:"center", gap:4, alignSelf:"flex-start",
-                    transition:"color 0.2s",
-                  }}>
-                    {copied===i ? "✓ Copied" : "Copy"}
-                  </button>
+                  <div style={{ flex:1, display:"flex", flexDirection:"column", gap:8 }}>
+                    <div style={{ lineHeight:1.8 }}>
+                      <Markdown text={m.content}/>
+                    </div>
+                    <button onClick={() => copyMsg(m.content, i)} style={{
+                      background:"none", border:"1px solid #27272a", cursor:"pointer",
+                      color: copied===i ? "#a78bfa" : "#52525b",
+                      fontSize:11, padding:"3px 10px", borderRadius:6,
+                      display:"flex", alignItems:"center", gap:5, alignSelf:"flex-start",
+                      transition:"all 0.2s",
+                    }}>
+                      {copied===i
+                        ? <><span>✓</span> Copied</>
+                        : <><svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</>
+                      }
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -562,16 +603,22 @@ FORMATTING RULES — follow strictly:
 
           {/* Streaming token display */}
           {loading && (
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, animation:"fadeUp 0.2s ease", maxWidth:"95%" }}>
-              <div style={{ padding:"14px 16px", borderRadius:18, borderBottomLeftRadius:4,
-                background:"#1c1c1f", border:"1px solid #2a2a2e", lineHeight:1.8 }}>
+            <div style={{ display:"flex", gap:10, alignItems:"flex-start", animation:"fadeUp 0.2s ease", width:"100%" }}>
+              <div style={{ width:28, height:28, borderRadius:"50%", flexShrink:0, marginTop:2,
+                background:"linear-gradient(135deg,#a78bfa,#7c3aed)",
+                display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+              </div>
+              <div style={{ flex:1, lineHeight:1.8, paddingTop:4 }}>
                 {streaming
                   ? <Markdown text={streaming + "▌"}/>
-                  : <div style={{ display:"flex", gap:5, alignItems:"center", padding:"4px 0" }}>
+                  : <div style={{ display:"flex", gap:5, alignItems:"center", padding:"6px 0" }}>
                       {[0,1,2].map(j=>(
-                        <div key={j} style={{ width:6,height:6,borderRadius:"50%",background:"#52525b",
-                          animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
-                          animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>
+                        <div key={j} style={{ width:7, height:7, borderRadius:"50%", background:"#52525b",
+                          animationName:"waveA", animationDuration:"1s", animationDelay:`${j*0.18}s`,
+                          animationIterationCount:"infinite", animationTimingFunction:"ease-in-out" }}/>
                       ))}
                     </div>
                 }
