@@ -189,33 +189,27 @@ async function generateNotes(text) {
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "You are an expert personal assistant and note-taker. You turn voice recordings into beautifully structured, detailed summaries. Always respond with valid JSON only." },
-      { role: "user",   content: `Analyse this voice recording transcript and return JSON with exactly these fields:
+      { role: "user",   content: `Analyse this voice recording transcript and return a JSON object with exactly these fields:
 
-- title: max 8 words, specific and descriptive of the core topic
+"title": string, max 8 words, specific and descriptive
 
-- summary: a rich, well-structured summary using this exact format with emojis and markdown:
+"summary": string (IMPORTANT: this must be a plain markdown STRING, not an object or array). Use this format inside the string:
 
-## 🗂️ Overview
-2-3 sentences describing the overall topic and context of the recording. Write in second person ("you discussed", "you decided").
+## 🗂️ Overview\\n
+2-3 sentences on the topic and context. Write in second person ("you discussed", "you decided").\\n\\n
+## 💡 Key Points\\n
+- Each bullet 1-2 sentences with full context and reasoning.\\n
+- Mention names, numbers, projects, deadlines if present.\\n\\n
+## 🔑 Decisions Made\\n
+- List every decision with context for why it was made.\\n\\n
+## ⚠️ Challenges & Concerns\\n
+- List problems, blockers, or worries. Omit section if none.\\n\\n
+## 🚀 Next Steps\\n
+- List next steps in order of priority.
 
-## 💡 Key Points
-- Use bullet points. Each bullet must be detailed — 1-2 sentences with full context, not just a headline.
-- Mention specific names, numbers, projects, or deadlines if present.
-- Include the reasoning or emotion behind each point where relevant.
+"tags": array of 4-6 keyword strings
 
-## 🔑 Decisions Made
-- List every decision made, with context for why it was made.
-- If no clear decisions, write "- No explicit decisions recorded."
-
-## ⚠️ Challenges & Concerns
-- List any problems, blockers, or worries mentioned.
-- If none, omit this section.
-
-## 🚀 Next Steps
-- List implied or stated next steps in order of priority.
-
-- tags: array of 4-6 relevant keyword tags
-- actionItems: array of up to 8 specific, actionable tasks (plain text, no markdown, empty array if none)
+"actionItems": array of up to 8 plain text actionable task strings (no markdown)
 
 Transcript: ${text}` },
     ],

@@ -2208,87 +2208,64 @@ export default function App() {
           </div>
         </section>
 
-        {/* UPLOAD AUDIO FILE */}
-        <section style={{ marginBottom:48 }}>
-          <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", marginBottom:20 }}>
-            Upload Audio File
-          </h2>
-          <div
-            onDragOver={e=>{ e.preventDefault(); setFileUploadDragging(true); }}
-            onDragLeave={()=>setFileUploadDragging(false)}
-            onDrop={e=>{ e.preventDefault(); setFileUploadDragging(false); const f=e.dataTransfer.files[0]; if(f) uploadFile(f); }}
-            onClick={()=>!fileUploading && fileInputRef.current?.click()}
-            style={{
-              border:`2px dashed ${fileUploadDragging?"#f59e0b":"#27272a"}`,
-              borderRadius:20, padding:"36px 24px",
-              background: fileUploadDragging?"rgba(245,158,11,.04)":"#18181b",
-              display:"flex", flexDirection:"column", alignItems:"center", gap:14,
-              cursor: fileUploading ? "default" : "pointer",
-              transition:"all 0.2s",
-            }}>
-            <input ref={fileInputRef} type="file"
-              accept=".wav,.mp3,.m4a,.ogg,.webm,.flac,.mp4,audio/*"
-              style={{ display:"none" }}
-              onChange={e=>{ const f=e.target.files[0]; if(f) uploadFile(f); e.target.value=""; }}/>
+        {/* UPLOAD AUDIO FILE — compact inline */}
+        <div style={{ marginBottom:32, display:"flex", alignItems:"center", gap:10 }}>
+          <input ref={fileInputRef} type="file"
+            accept=".wav,.mp3,.m4a,.ogg,.webm,.flac,.mp4,audio/*"
+            style={{ display:"none" }}
+            onChange={e=>{ const f=e.target.files[0]; if(f) uploadFile(f); e.target.value=""; }}/>
 
-            {!fileUploading && !fileUploadDone && (
-              <>
-                <div style={{ width:52, height:52, borderRadius:16,
-                  background: fileUploadDragging?"rgba(245,158,11,.15)":"#27272a",
-                  display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s" }}>
-                  <svg width="24" height="24" fill="none" stroke={fileUploadDragging?"#f59e0b":"#71717a"} strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                </div>
-                <div style={{ textAlign:"center" }}>
-                  <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:600, fontSize:14, color:"#e4e4e7", margin:"0 0 4px" }}>
-                    {fileUploadDragging ? "Drop to upload" : "Drag & drop an audio file"}
-                  </p>
-                  <p style={{ fontSize:12, color:"#52525b", margin:0 }}>
-                    or <span style={{ color:"#f59e0b", fontWeight:600 }}>click to browse</span> · WAV, MP3, M4A, OGG, FLAC
-                  </p>
-                </div>
-              </>
-            )}
+          {!fileUploading && !fileUploadDone && (
+            <button onClick={()=>fileInputRef.current?.click()} style={{
+              display:"flex", alignItems:"center", gap:7, padding:"9px 16px",
+              borderRadius:12, border:"1px solid #27272a", background:"#18181b",
+              color:"#a1a1aa", fontSize:12, fontWeight:600, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#a1a1aa"; }}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Upload audio file
+            </button>
+          )}
 
-            {fileUploading && (
-              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
-                <div style={{ display:"flex", gap:3 }}>
-                  {Array.from({length:14}).map((_,i)=><WaveBar key={i} active i={i} h={20}/>)}
-                </div>
-                <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:600, color:"#fff", fontSize:14, margin:0 }}>
-                  {fileUploadStage==="analysing" ? "🧠 Generating AI notes…" : "🎙️ Transcribing audio…"}
-                </p>
-                <p style={{ fontSize:12, color:"#52525b", margin:0 }}>Usually takes 10–30 seconds</p>
+          {fileUploading && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 16px",
+              borderRadius:12, border:"1px solid #27272a", background:"#18181b" }}>
+              <div style={{ display:"flex", gap:2 }}>
+                {[0,1,2].map(j=><div key={j} style={{ width:4,height:4,borderRadius:"50%",background:"#f59e0b",
+                  animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
+                  animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
               </div>
-            )}
+              <span style={{ fontSize:12, color:"#a1a1aa" }}>
+                {fileUploadStage==="analysing" ? "Generating AI notes…" : "Transcribing audio…"}
+              </span>
+            </div>
+          )}
 
-            {fileUploadDone && !fileUploading && (
-              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
-                <div style={{ width:48, height:48, borderRadius:"50%", background:"rgba(16,185,129,.1)",
-                  border:"1px solid rgba(16,185,129,.3)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  <svg width="22" height="22" fill="none" stroke="#10b981" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </div>
-                <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, color:"#fff", fontSize:14, margin:0 }}>File uploaded & analysed!</p>
-                <button onClick={e=>{ e.stopPropagation(); setFileUploadDone(false); }} style={{
-                  fontSize:12, color:"#f59e0b", background:"none", border:"none", cursor:"pointer" }}>
-                  Upload another →
-                </button>
-              </div>
-            )}
+          {fileUploadDone && !fileUploading && (
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:12, color:"#10b981", fontWeight:600 }}>✓ Uploaded & analysed</span>
+              <button onClick={()=>setFileUploadDone(false)} style={{
+                fontSize:11, color:"#52525b", background:"none", border:"none", cursor:"pointer" }}>
+                Upload another
+              </button>
+            </div>
+          )}
 
-            {fileUploadError && !fileUploading && (
-              <div style={{ background:"rgba(239,68,68,.08)", border:"1px solid rgba(239,68,68,.2)",
-                borderRadius:10, padding:"10px 16px", fontSize:12, color:"#f87171", textAlign:"center" }}>
-                <strong>Error:</strong> {fileUploadError}
-              </div>
-            )}
-          </div>
-        </section>
+          {fileUploadError && !fileUploading && (
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:12, color:"#f87171" }}>✗ {fileUploadError}</span>
+              <button onClick={()=>{ setFileUploadError(null); fileInputRef.current?.click(); }} style={{
+                fontSize:11, color:"#f59e0b", background:"none", border:"none", cursor:"pointer" }}>
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* PROJECTS & CALENDAR */}
         <ProjectsSection API={API} authFetch={authFetch} recordings={recordings}/>
