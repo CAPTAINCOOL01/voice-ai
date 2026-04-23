@@ -841,14 +841,16 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
                 </div>
               )}
               {rec.summary && (
-                <div style={{ background:"rgba(245,158,11,.06)", border:"1px solid rgba(245,158,11,.18)", borderRadius:14, padding:18 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10 }}>
-                    <svg width="13" height="13" fill="none" stroke="#f59e0b" strokeWidth="2" viewBox="0 0 24 24">
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                    </svg>
-                    <span style={{ fontSize:12, fontWeight:700, color:"#f59e0b", fontFamily:"'Sora',sans-serif" }}>AI Summary</span>
+                <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:16, padding:20 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16, paddingBottom:12, borderBottom:"1px solid #27272a" }}>
+                    <div style={{ width:28, height:28, borderRadius:"50%", background:"linear-gradient(135deg,#f59e0b,#fb923c)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                      </svg>
+                    </div>
+                    <span style={{ fontSize:13, fontWeight:700, color:"#f4f4f5", fontFamily:"'Sora',sans-serif" }}>AI Summary</span>
                   </div>
-                  <p style={{ fontSize:13, color:"#d4d4d8", lineHeight:1.75, margin:0 }}>{rec.summary}</p>
+                  <Markdown text={rec.summary}/>
                 </div>
               )}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
