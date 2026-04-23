@@ -725,18 +725,87 @@ app.post("/chat/stream", auth, async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+
+  const tools = [{
+    type: "function",
+    function: {
+      name: "add_task_to_project",
+      description: "Add a task to one of the user's projects",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id:  { type: "string", description: "The _id of the project" },
+          task_text:   { type: "string", description: "The task description" },
+          due_date:    { type: "string", description: "Optional ISO due date (YYYY-MM-DD)" },
+        },
+        required: ["project_id", "task_text"],
+      },
+    },
+  }];
+
   try {
-    const stream = await openai.chat.completions.create({
-      model: "gpt-4o-mini", max_tokens: 1000, stream: true,
-      messages: [
-        { role: "system", content: system || "You are a helpful assistant." },
-        ...(messages || []),
-      ],
+    const allMessages = [
+      { role: "system", content: system || "You are a helpful assistant." },
+      ...(messages || []),
+    ];
+
+    // First pass — may trigger a tool call
+    const firstRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini", max_tokens: 1200, stream: false,
+      messages: allMessages,
+      tools,
+      tool_choice: "auto",
     });
-    for await (const chunk of stream) {
-      const token = chunk.choices[0]?.delta?.content || "";
-      if (token) res.write(`data: ${token}\n\n`);
+
+    const firstMsg = firstRes.choices[0].message;
+
+    if (firstMsg.tool_calls && firstMsg.tool_calls.length > 0) {
+      const toolCall = firstMsg.tool_calls[0];
+      const args = JSON.parse(toolCall.function.arguments);
+
+      // Execute the tool
+      let toolResult = "";
+      try {
+        const p = await Project.findOne({ _id: args.project_id, userId: req.user._id });
+        if (!p) throw new Error("Project not found");
+        p.tasks.push({ text: args.task_text, dueDate: args.due_date ? new Date(args.due_date) : undefined });
+        await p.save();
+        toolResult = `Task "${args.task_text}" added to project "${p.name}".`;
+      } catch (e) {
+        toolResult = `Failed to add task: ${e.message}`;
+      }
+
+      // Signal frontend to refresh
+      res.write(`data: [TOOL_RESULT:${toolResult}]\n\n`);
+
+      // Second pass with tool result — stream the final response
+      const secondMessages = [
+        ...allMessages,
+        firstMsg,
+        { role: "tool", tool_call_id: toolCall.id, content: toolResult },
+      ];
+      const stream2 = await openai.chat.completions.create({
+        model: "gpt-4o-mini", max_tokens: 600, stream: true,
+        messages: secondMessages,
+      });
+      for await (const chunk of stream2) {
+        const token = chunk.choices[0]?.delta?.content || "";
+        if (token) res.write(`data: ${token}\n\n`);
+      }
+    } else {
+      // No tool call — stream from scratch
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4o-mini", max_tokens: 1200, stream: true,
+        messages: allMessages,
+        tools,
+        tool_choice: "none",
+      });
+      for await (const chunk of stream) {
+        const token = chunk.choices[0]?.delta?.content || "";
+        if (token) res.write(`data: ${token}\n\n`);
+      }
     }
+
     res.write("data: [DONE]\n\n");
   } catch (err) {
     res.write(`data: Error: ${err.message}\n\n`);

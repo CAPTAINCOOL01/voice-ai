@@ -412,7 +412,7 @@ function renderInline(text) {
 }
 
 // ── AI Chat Panel ──────────────────────────────────────
-function AIChatPanel({ rec, onAnalyse, analysing }) {
+function AIChatPanel({ rec, onAnalyse, analysing, projects, onProjectsRefresh }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [loading, setLoading]   = useState(false);
@@ -421,7 +421,11 @@ function AIChatPanel({ rec, onAnalyse, analysing }) {
   const bottomRef               = useRef(null);
   const hasTranscript           = !!rec.transcript;
 
-  const SYSTEM = `You are an intelligent assistant helping a user analyse their voice recording.
+  const projectsContext = projects && projects.length > 0
+    ? `\n\nUSER'S PROJECTS (you can add tasks to these):\n${projects.map(p => `- ${p.emoji} ${p.name} (id: ${p._id})`).join("\n")}`
+    : "\n\nUSER'S PROJECTS: None created yet.";
+
+  const SYSTEM = `You are an intelligent assistant helping a user analyse their voice recording. You can also add tasks to the user's projects when asked.
 
 Recording title: ${rec.title || "Untitled"}
 Date: ${fmtDate(rec.createdAt)}
@@ -429,6 +433,9 @@ Duration: ${rec.duration > 0 ? fmtTime(Math.round(rec.duration)) : "unknown"}
 ${rec.summary ? `\nSummary: ${rec.summary}` : ""}
 ${rec.tags?.length ? `\nTags: ${rec.tags.join(", ")}` : ""}
 ${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet.)"}
+${projectsContext}
+
+TASK ADDING: If the user asks you to add a task to a project, use the add_task_to_project tool. Match the project by name (case-insensitive). If no project matches, tell the user.
 
 RESPONSE STYLE — follow exactly:
 - Be descriptive and thorough — explain the context behind each point, not just the raw fact
@@ -493,12 +500,15 @@ EXAMPLE of good formatting:
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        // SSE format: "data: token\n\n"
         chunk.split("\n").forEach(line => {
           if (line.startsWith("data: ")) {
             const token = line.slice(6);
             if (token === "[DONE]") return;
-            full += token;
+            if (token.startsWith("[TOOL_RESULT:")) {
+              // Tool was executed — refresh projects
+              onProjectsRefresh && onProjectsRefresh();
+            }
+            full += token.startsWith("[TOOL_RESULT:") ? "" : token;
             setStreaming(full);
           }
         });
@@ -673,7 +683,7 @@ EXAMPLE of good formatting:
 }
 
 // ── Detail side panel ──────────────────────────────────
-function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing }) {
+function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing, projects, onProjectsRefresh }) {
   const [tab, setTab]       = useState(initialTab || "listen");
   const [items, setItems]   = useState(() => (rec.actionItems||[]).map((t,i)=>({id:i,text:t,done:false})));
   const [copied, setCopied] = useState(false);
@@ -969,7 +979,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing 
 
               {/* Chat component — fills remaining space */}
               <div style={{ flex:1, display:"flex", flexDirection:"column", minHeight:0 }}>
-                <AIChatPanel rec={rec} onAnalyse={onAnalyse} analysing={analysing} />
+                <AIChatPanel rec={rec} onAnalyse={onAnalyse} analysing={analysing} projects={projects} onProjectsRefresh={onProjectsRefresh} />
               </div>
             </div>
           )}
@@ -1180,8 +1190,10 @@ function Skeleton() {
 const PROJECT_COLORS = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4","#f97316"];
 const PROJECT_EMOJIS = ["📁","🚀","💡","🎯","🔥","📊","🛠️","🎨","📝","⚡","🌟","💼"];
 
-function ProjectsSection({ API, authFetch, recordings }) {
-  const [projects, setProjects]       = useState([]);
+function ProjectsSection({ API, authFetch, recordings, externalProjects, onProjectsChange }) {
+  const [_projects, _setProjects]     = useState([]);
+  const projects = externalProjects || _projects;
+  const setProjects = (v) => { _setProjects(v); onProjectsChange && onProjectsChange(v); };
   const [loading, setLoading]         = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
   const [newName, setNewName]         = useState("");
@@ -1194,12 +1206,15 @@ function ProjectsSection({ API, authFetch, recordings }) {
   const [taskDueDate, setTaskDueDate] = useState("");
   const [expandedProject, setExpandedProject] = useState(null);
 
-  const fetchProjects = useCallback(async () => {
-    try { const r = await authFetch(`${API}/projects`); setProjects(await r.json()); }
+  const fetchProjectsLocal = useCallback(async () => {
+    try { const r = await authFetch(`${API}/projects`); const data = await r.json(); setProjects(data); }
     catch {} finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+  useEffect(() => {
+    if (externalProjects) { setLoading(false); }
+    else { fetchProjectsLocal(); }
+  }, [externalProjects, fetchProjectsLocal]);
 
   const createProject = async () => {
     if (!newName.trim()) return;
@@ -1726,6 +1741,13 @@ export default function App() {
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
   const [deviceRecording, setDeviceRecording] = useState(false);
+  const [currentPage, setCurrentPage] = useState("home");
+  const [projects, setProjects] = useState([]);
+
+  const fetchProjects = useCallback(async () => {
+    try { const r = await authFetch(`${API}/projects`); setProjects(await r.json()); } catch {}
+  }, []);
+  useEffect(() => { if (authed) fetchProjects(); }, [authed, fetchProjects]);
 
   // Real-time device status via WebSocket
   useEffect(() => {
@@ -2036,6 +2058,18 @@ export default function App() {
                 }}/>
                 {deviceRecording ? "Recording" : "Idle"}
               </div>
+            <button onClick={() => setCurrentPage(p => p === "projects" ? "home" : "projects")} style={{
+              background: currentPage === "projects" ? "rgba(245,158,11,0.1)" : "none",
+              border: `1px solid ${currentPage === "projects" ? "rgba(245,158,11,0.4)" : "#27272a"}`,
+              borderRadius:8, padding:"5px 12px", fontSize:12,
+              color: currentPage === "projects" ? "#f59e0b" : "#71717a",
+              cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:600,
+              display:"flex", alignItems:"center", gap:5, transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ if(currentPage!=="projects"){ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}}
+            onMouseLeave={e=>{ if(currentPage!=="projects"){ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}}>
+              🗂️ Projects
+            </button>
             <a href="/app/settings" style={{
               background:"none", border:"1px solid #27272a", borderRadius:8,
               padding:"5px 10px", color:"#71717a", cursor:"pointer", display:"flex", alignItems:"center",
@@ -2065,6 +2099,14 @@ export default function App() {
       </header>
 
       <main className="main-pad" style={{ maxWidth:820, margin:"0 auto", padding:"32px 20px 80px" }}>
+
+        {/* PROJECTS PAGE */}
+        {currentPage === "projects" && (
+          <ProjectsSection API={API} authFetch={authFetch} recordings={recordings}
+            externalProjects={projects} onProjectsChange={setProjects}/>
+        )}
+
+        {currentPage !== "projects" && <>
 
         {/* RECORDER */}
         <section style={{ marginBottom:48 }}>
@@ -2267,9 +2309,6 @@ export default function App() {
           )}
         </div>
 
-        {/* PROJECTS & CALENDAR */}
-        <ProjectsSection API={API} authFetch={authFetch} recordings={recordings}/>
-
         {/* RECORDINGS */}
         <section>
           <div className="search-row" style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
@@ -2467,6 +2506,8 @@ export default function App() {
             </div>
           )}
         </section>
+        </>}
+
       </main>
 
       {activeRec && (
@@ -2477,6 +2518,8 @@ export default function App() {
           onClose={()=>setActiveRec(null)}
           onAnalyse={analyseRecording}
           analysing={analysingId === activeRec.rec._id}
+          projects={projects}
+          onProjectsRefresh={fetchProjects}
         />
       )}
     </div>
