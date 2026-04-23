@@ -172,8 +172,14 @@ async function generateNotes(text) {
   const ai = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "Turn transcripts into structured notes. Respond with valid JSON only." },
-      { role: "user",   content: `Return JSON with exactly: title (max 8 words), summary (2-3 sentences), tags (array of 3 words), actionItems (array of up to 4 tasks, empty if none).\n\nTranscript: ${text}` },
+      { role: "system", content: "You are an expert note-taker. Turn voice recording transcripts into rich, detailed structured notes. Respond with valid JSON only." },
+      { role: "user",   content: `Return JSON with exactly these fields:
+- title: max 8 words, captures the core topic
+- summary: a detailed 5-8 sentence paragraph that covers: what was discussed, key context, important decisions made, any emotions or urgency expressed, and what outcomes or next steps were implied. Write in second person ("you discussed", "you decided"). Be specific — mention actual names, projects, numbers if present.
+- tags: array of 3-5 relevant keyword tags
+- actionItems: array of up to 6 specific, actionable tasks mentioned or implied (empty array if none)
+
+Transcript: ${text}` },
     ],
     response_format: { type: "json_object" },
   });
