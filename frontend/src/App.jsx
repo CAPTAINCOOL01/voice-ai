@@ -1176,6 +1176,487 @@ function Skeleton() {
   );
 }
 
+// ── Projects & Calendar ─────────────────────────────────
+const PROJECT_COLORS = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4","#f97316"];
+const PROJECT_EMOJIS = ["📁","🚀","💡","🎯","🔥","📊","🛠️","🎨","📝","⚡","🌟","💼"];
+
+function ProjectsSection({ API, authFetch, recordings }) {
+  const [projects, setProjects]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newName, setNewName]         = useState("");
+  const [newEmoji, setNewEmoji]       = useState("📁");
+  const [newColor, setNewColor]       = useState("#f59e0b");
+  const [newDesc, setNewDesc]         = useState("");
+  const [calMonth, setCalMonth]       = useState(new Date());
+  const [activeProject, setActiveProject] = useState(null);
+  const [assignModal, setAssignModal] = useState(null); // { projectId, task }
+  const [taskDueDate, setTaskDueDate] = useState("");
+  const [expandedProject, setExpandedProject] = useState(null);
+
+  const fetchProjects = useCallback(async () => {
+    try { const r = await authFetch(`${API}/projects`); setProjects(await r.json()); }
+    catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+
+  const createProject = async () => {
+    if (!newName.trim()) return;
+    const r = await authFetch(`${API}/projects`, { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ name:newName.trim(), emoji:newEmoji, color:newColor, description:newDesc }) });
+    const p = await r.json();
+    setProjects(prev => [p, ...prev]);
+    setShowNewProject(false); setNewName(""); setNewDesc(""); setNewEmoji("📁"); setNewColor("#f59e0b");
+  };
+
+  const deleteProject = async (id) => {
+    if (!window.confirm("Delete this project?")) return;
+    await authFetch(`${API}/projects/${id}`, { method:"DELETE" });
+    setProjects(prev => prev.filter(p => p._id !== id));
+    if (expandedProject === id) setExpandedProject(null);
+  };
+
+  const toggleTask = async (projectId, taskId, done) => {
+    const r = await authFetch(`${API}/projects/${projectId}/tasks/${taskId}`, {
+      method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ done }),
+    });
+    const updated = await r.json();
+    setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
+  };
+
+  const deleteTask = async (projectId, taskId) => {
+    const r = await authFetch(`${API}/projects/${projectId}/tasks/${taskId}`, { method:"DELETE" });
+    const updated = await r.json();
+    setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
+  };
+
+  const addTask = async (projectId, text, dueDate) => {
+    const r = await authFetch(`${API}/projects/${projectId}/tasks`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ text, dueDate: dueDate||undefined }),
+    });
+    const updated = await r.json();
+    setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
+  };
+
+  const assignRecordingTask = async (projectId, taskText, dueDate, recordingId) => {
+    const r = await authFetch(`${API}/projects/${projectId}/tasks`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ text:taskText, dueDate:dueDate||undefined, recordingId }),
+    });
+    const updated = await r.json();
+    setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
+    setAssignModal(null);
+  };
+
+  // Calendar helpers
+  const calYear  = calMonth.getFullYear();
+  const calMon   = calMonth.getMonth();
+  const firstDay = new Date(calYear, calMon, 1).getDay();
+  const daysInMonth = new Date(calYear, calMon+1, 0).getDate();
+  const allTasks = projects.flatMap(p => p.tasks.map(t => ({ ...t, projectName:p.name, projectColor:p.color, projectEmoji:p.emoji })));
+  const tasksByDate = {};
+  allTasks.forEach(t => {
+    if (!t.dueDate) return;
+    const d = new Date(t.dueDate).toDateString();
+    if (!tasksByDate[d]) tasksByDate[d] = [];
+    tasksByDate[d].push(t);
+  });
+
+  const today = new Date();
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  return (
+    <section style={{ marginBottom:56 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:24 }}>
+        <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", margin:0 }}>
+          🗂️ Projects
+        </h2>
+        <button onClick={() => setShowNewProject(true)} style={{
+          display:"flex", alignItems:"center", gap:6, padding:"9px 18px", borderRadius:12,
+          background:"linear-gradient(135deg,#f59e0b,#fb923c)", border:"none", cursor:"pointer",
+          color:"white", fontWeight:700, fontSize:13, fontFamily:"'Sora',sans-serif",
+          boxShadow:"0 4px 20px rgba(245,158,11,.3)", transition:"filter 0.15s",
+        }}
+        onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"}
+        onMouseLeave={e=>e.currentTarget.style.filter=""}>
+          + New Project
+        </button>
+      </div>
+
+      {/* New project modal */}
+      {showNewProject && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:200,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+          onClick={e=>{ if(e.target===e.currentTarget) setShowNewProject(false); }}>
+          <div style={{ background:"#18181b", border:"1px solid #27272a", borderRadius:20, padding:28, width:"100%", maxWidth:420 }}>
+            <h3 style={{ fontFamily:"'Sora',sans-serif", color:"#fff", fontWeight:700, fontSize:16, margin:"0 0 20px" }}>✨ Create New Project</h3>
+
+            {/* Emoji picker */}
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Choose Icon</p>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:16 }}>
+              {PROJECT_EMOJIS.map(e=>(
+                <button key={e} onClick={()=>setNewEmoji(e)} style={{
+                  width:36, height:36, borderRadius:10, border:`2px solid ${newEmoji===e?"#f59e0b":"#27272a"}`,
+                  background: newEmoji===e?"rgba(245,158,11,.1)":"#111", fontSize:18, cursor:"pointer", transition:"all 0.15s",
+                }}>{e}</button>
+              ))}
+            </div>
+
+            {/* Color picker */}
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Color</p>
+            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              {PROJECT_COLORS.map(c=>(
+                <button key={c} onClick={()=>setNewColor(c)} style={{
+                  width:28, height:28, borderRadius:"50%", background:c, border:`3px solid ${newColor===c?"#fff":"transparent"}`,
+                  cursor:"pointer", transition:"all 0.15s",
+                }}/>
+              ))}
+            </div>
+
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Project Name</p>
+            <input value={newName} onChange={e=>setNewName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&createProject()}
+              placeholder="e.g. Work Tasks, Personal Goals…"
+              style={{ width:"100%", background:"#111", border:"1px solid #27272a", borderRadius:12,
+                padding:"11px 14px", fontSize:13, color:"#e4e4e7", outline:"none", fontFamily:"'DM Sans',sans-serif",
+                boxSizing:"border-box", marginBottom:12 }}
+              autoFocus/>
+
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Description (optional)</p>
+            <input value={newDesc} onChange={e=>setNewDesc(e.target.value)}
+              placeholder="What's this project about?"
+              style={{ width:"100%", background:"#111", border:"1px solid #27272a", borderRadius:12,
+                padding:"11px 14px", fontSize:13, color:"#e4e4e7", outline:"none", fontFamily:"'DM Sans',sans-serif",
+                boxSizing:"border-box", marginBottom:20 }}/>
+
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={createProject} disabled={!newName.trim()} style={{
+                flex:1, padding:"12px", borderRadius:12, border:"none", cursor: newName.trim()?"pointer":"default",
+                background: newName.trim()?"linear-gradient(135deg,#f59e0b,#fb923c)":"#27272a",
+                color:"white", fontWeight:700, fontSize:13, fontFamily:"'Sora',sans-serif", transition:"filter 0.15s",
+              }}>Create Project</button>
+              <button onClick={()=>setShowNewProject(false)} style={{
+                padding:"12px 16px", borderRadius:12, border:"1px solid #27272a", background:"transparent",
+                color:"#71717a", cursor:"pointer", fontSize:13,
+              }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign task modal */}
+      {assignModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", zIndex:200,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+          onClick={e=>{ if(e.target===e.currentTarget) setAssignModal(null); }}>
+          <div style={{ background:"#18181b", border:"1px solid #27272a", borderRadius:20, padding:28, width:"100%", maxWidth:400 }}>
+            <h3 style={{ fontFamily:"'Sora',sans-serif", color:"#fff", fontWeight:700, fontSize:15, margin:"0 0 6px" }}>📌 Assign Task to Project</h3>
+            <p style={{ fontSize:12, color:"#71717a", margin:"0 0 20px", lineHeight:1.5 }}>{assignModal.task}</p>
+
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Due Date (optional)</p>
+            <input type="date" value={taskDueDate} onChange={e=>setTaskDueDate(e.target.value)}
+              style={{ width:"100%", background:"#111", border:"1px solid #27272a", borderRadius:10,
+                padding:"10px 14px", fontSize:13, color:"#e4e4e7", outline:"none",
+                fontFamily:"'DM Sans',sans-serif", boxSizing:"border-box", marginBottom:16 }}/>
+
+            <p style={{ fontSize:11, color:"#52525b", margin:"0 0 10px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Select Project</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:200, overflowY:"auto" }}>
+              {projects.map(p=>(
+                <button key={p._id} onClick={()=>assignRecordingTask(p._id, assignModal.task, taskDueDate, assignModal.recordingId)} style={{
+                  display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderRadius:12,
+                  border:"1px solid #27272a", background:"#111", cursor:"pointer", transition:"all 0.15s",
+                  textAlign:"left",
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.borderColor=p.color; e.currentTarget.style.background="rgba(255,255,255,.03)"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.background="#111"; }}>
+                  <span style={{ width:32, height:32, borderRadius:10, background:`${p.color}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{p.emoji}</span>
+                  <div>
+                    <p style={{ margin:0, fontSize:13, fontWeight:600, color:"#e4e4e7" }}>{p.name}</p>
+                    {p.description && <p style={{ margin:0, fontSize:11, color:"#52525b" }}>{p.description}</p>}
+                  </div>
+                </button>
+              ))}
+              {projects.length===0 && <p style={{ fontSize:13, color:"#52525b", textAlign:"center", padding:"16px 0" }}>No projects yet — create one first</p>}
+            </div>
+            <button onClick={()=>setAssignModal(null)} style={{
+              width:"100%", marginTop:16, padding:"11px", borderRadius:12, border:"1px solid #27272a",
+              background:"transparent", color:"#71717a", cursor:"pointer", fontSize:13,
+            }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && <p style={{ color:"#52525b", fontSize:13 }}>Loading projects…</p>}
+
+      {/* Project cards */}
+      {!loading && projects.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14, marginBottom:32 }}>
+          {projects.map(p => {
+            const done  = p.tasks.filter(t=>t.done).length;
+            const total = p.tasks.length;
+            const pct   = total > 0 ? Math.round(done/total*100) : 0;
+            const isExp = expandedProject === p._id;
+            return (
+              <div key={p._id} style={{
+                background:"#111113", border:`1px solid ${isExp?p.color+"55":"#27272a"}`,
+                borderRadius:18, overflow:"hidden", transition:"all 0.2s",
+                boxShadow: isExp?`0 0 24px ${p.color}22`:"none",
+              }}>
+                {/* Card header */}
+                <div style={{ padding:"16px 18px", cursor:"pointer" }} onClick={()=>setExpandedProject(isExp?null:p._id)}>
+                  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ width:38, height:38, borderRadius:12, background:`${p.color}22`,
+                        display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{p.emoji}</div>
+                      <div>
+                        <p style={{ margin:0, fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:"#f4f4f5" }}>{p.name}</p>
+                        {p.description && <p style={{ margin:0, fontSize:11, color:"#52525b", marginTop:2 }}>{p.description}</p>}
+                      </div>
+                    </div>
+                    <button onClick={e=>{ e.stopPropagation(); deleteProject(p._id); }} style={{
+                      background:"none", border:"none", cursor:"pointer", color:"#3f3f46", padding:4, borderRadius:6, transition:"color 0.15s",
+                    }}
+                    onMouseEnter={e=>e.currentTarget.style.color="#f87171"}
+                    onMouseLeave={e=>e.currentTarget.style.color="#3f3f46"}>
+                      <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                    </button>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ flex:1, height:4, borderRadius:999, background:"#27272a", overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${pct}%`, background:p.color, borderRadius:999, transition:"width 0.5s" }}/>
+                    </div>
+                    <span style={{ fontSize:11, color:"#52525b", flexShrink:0 }}>{done}/{total} done</span>
+                  </div>
+                </div>
+
+                {/* Expanded task list */}
+                {isExp && (
+                  <div style={{ borderTop:"1px solid #1e1e21", padding:"14px 18px 18px" }}>
+                    {p.tasks.length === 0 && (
+                      <p style={{ fontSize:12, color:"#3f3f46", textAlign:"center", padding:"12px 0", margin:0 }}>No tasks yet — add one below or assign from a recording</p>
+                    )}
+                    {p.tasks.map(t=>(
+                      <div key={t._id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 0",
+                        borderBottom:"1px solid #1a1a1d" }}>
+                        <button onClick={()=>toggleTask(p._id, t._id, !t.done)} style={{
+                          width:18, height:18, borderRadius:5, flexShrink:0, marginTop:2, cursor:"pointer",
+                          background: t.done?p.color:"transparent", border:`2px solid ${t.done?p.color:"#3f3f46"}`,
+                          display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s",
+                        }}>
+                          {t.done && <svg width="10" height="10" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>}
+                        </button>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <p style={{ margin:0, fontSize:12, color: t.done?"#52525b":"#d4d4d8",
+                            textDecoration: t.done?"line-through":"none", lineHeight:1.5 }}>{t.text}</p>
+                          {t.dueDate && (
+                            <p style={{ margin:"2px 0 0", fontSize:11, color: new Date(t.dueDate)<today&&!t.done?"#f87171":"#52525b" }}>
+                              📅 {new Date(t.dueDate).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                            </p>
+                          )}
+                        </div>
+                        <button onClick={()=>deleteTask(p._id, t._id)} style={{
+                          background:"none", border:"none", cursor:"pointer", color:"#27272a", padding:2, transition:"color 0.15s",
+                        }}
+                        onMouseEnter={e=>e.currentTarget.style.color="#f87171"}
+                        onMouseLeave={e=>e.currentTarget.style.color="#27272a"}>×</button>
+                      </div>
+                    ))}
+                    {/* Quick add task */}
+                    <QuickAddTask onAdd={(text,due)=>addTask(p._id, text, due)} color={p.color}/>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!loading && projects.length === 0 && (
+        <div style={{ background:"#111113", border:"1px dashed #27272a", borderRadius:18, padding:"40px 24px",
+          textAlign:"center", marginBottom:32 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>🗂️</div>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:600, color:"#e4e4e7", fontSize:15, margin:"0 0 6px" }}>No projects yet</p>
+          <p style={{ fontSize:13, color:"#52525b", margin:"0 0 20px" }}>Create a project to organise your recording tasks</p>
+          <button onClick={()=>setShowNewProject(true)} style={{
+            padding:"10px 24px", borderRadius:12, border:"none", cursor:"pointer",
+            background:"linear-gradient(135deg,#f59e0b,#fb923c)", color:"white",
+            fontWeight:700, fontSize:13, fontFamily:"'Sora',sans-serif",
+          }}>+ Create First Project</button>
+        </div>
+      )}
+
+      {/* Calendar */}
+      <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:20, overflow:"hidden" }}>
+        {/* Calendar header */}
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #1e1e21", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:18 }}>📅</span>
+            <span style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:15, color:"#f4f4f5" }}>
+              {MONTHS[calMon]} {calYear}
+            </span>
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={()=>setCalMonth(new Date(calYear, calMon-1, 1))} style={{
+              width:32, height:32, borderRadius:8, border:"1px solid #27272a", background:"transparent",
+              color:"#a1a1aa", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#a1a1aa"; }}>‹</button>
+            <button onClick={()=>setCalMonth(new Date())} style={{
+              padding:"0 12px", height:32, borderRadius:8, border:"1px solid #27272a", background:"transparent",
+              color:"#a1a1aa", cursor:"pointer", fontSize:11, fontWeight:600, transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#a1a1aa"; }}>Today</button>
+            <button onClick={()=>setCalMonth(new Date(calYear, calMon+1, 1))} style={{
+              width:32, height:32, borderRadius:8, border:"1px solid #27272a", background:"transparent",
+              color:"#a1a1aa", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#a1a1aa"; }}>›</button>
+          </div>
+        </div>
+
+        {/* Day headers */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", borderBottom:"1px solid #1a1a1d" }}>
+          {DAYS.map(d=>(
+            <div key={d} style={{ padding:"10px 0", textAlign:"center", fontSize:11, fontWeight:700,
+              color:"#3f3f46", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.05em" }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Calendar grid */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)" }}>
+          {Array.from({ length: firstDay }).map((_,i)=>(
+            <div key={`e${i}`} style={{ minHeight:80, borderRight:"1px solid #1a1a1d", borderBottom:"1px solid #1a1a1d", background:"#0d0d0f" }}/>
+          ))}
+          {Array.from({ length: daysInMonth }).map((_,i)=>{
+            const day  = i+1;
+            const date = new Date(calYear, calMon, day);
+            const key  = date.toDateString();
+            const dayTasks = tasksByDate[key] || [];
+            const isToday  = date.toDateString() === today.toDateString();
+            const col   = (firstDay+i) % 7;
+            return (
+              <div key={day} style={{
+                minHeight:80, padding:"8px 6px",
+                borderRight: col<6?"1px solid #1a1a1d":"none",
+                borderBottom:"1px solid #1a1a1d",
+                background: isToday?"rgba(245,158,11,.04)":"transparent",
+                transition:"background 0.15s",
+              }}>
+                <div style={{
+                  width:26, height:26, borderRadius:"50%", marginBottom:4,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  background: isToday?"#f59e0b":"transparent",
+                  fontFamily:"'Sora',sans-serif", fontWeight: isToday?700:400,
+                  fontSize:12, color: isToday?"#000":"#52525b",
+                }}>{day}</div>
+                {dayTasks.slice(0,3).map((t,ti)=>(
+                  <div key={ti} title={t.text} style={{
+                    fontSize:10, padding:"2px 6px", borderRadius:5, marginBottom:2,
+                    background:`${t.projectColor}22`, color:t.projectColor,
+                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                    fontWeight:600, display:"flex", alignItems:"center", gap:3,
+                  }}>
+                    <span style={{ fontSize:9 }}>{t.projectEmoji}</span>
+                    {t.text}
+                  </div>
+                ))}
+                {dayTasks.length>3 && (
+                  <div style={{ fontSize:10, color:"#52525b", padding:"1px 6px" }}>+{dayTasks.length-3} more</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Assign from recordings */}
+      {recordings.some(r=>r.actionItems?.length>0) && (
+        <div style={{ marginTop:24 }}>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:"#a1a1aa", marginBottom:14 }}>
+            📋 Assign tasks from your recordings
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {recordings.filter(r=>r.actionItems?.length>0).slice(0,5).map(r=>(
+              <div key={r._id} style={{ background:"#111113", border:"1px solid #1e1e21", borderRadius:14, padding:"12px 16px" }}>
+                <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:600, color:"#71717a" }}>
+                  🎙️ {r.title || "Untitled"} · {r.actionItems.length} task{r.actionItems.length>1?"s":""}
+                </p>
+                <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                  {r.actionItems.map((item,i)=>(
+                    <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                      <span style={{ fontSize:12, color:"#a1a1aa", flex:1 }}>• {item}</span>
+                      <button onClick={()=>{ setAssignModal({ task:item, recordingId:r._id }); setTaskDueDate(""); }} style={{
+                        padding:"4px 10px", borderRadius:8, border:"1px solid #27272a", background:"transparent",
+                        color:"#71717a", fontSize:11, cursor:"pointer", flexShrink:0, transition:"all 0.15s",
+                        fontWeight:600,
+                      }}
+                      onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+                      onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
+                        + Assign
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function QuickAddTask({ onAdd, color }) {
+  const [text, setText] = useState("");
+  const [due,  setDue]  = useState("");
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop:10 }}>
+      {!open ? (
+        <button onClick={()=>setOpen(true)} style={{
+          background:"none", border:"1px dashed #27272a", borderRadius:8, padding:"7px 12px",
+          color:"#3f3f46", cursor:"pointer", fontSize:12, width:"100%", textAlign:"left",
+          transition:"all 0.15s",
+        }}
+        onMouseEnter={e=>{ e.currentTarget.style.borderColor=color; e.currentTarget.style.color=color; }}
+        onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#3f3f46"; }}>
+          + Add task
+        </button>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          <input value={text} onChange={e=>setText(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter"&&text.trim()){ onAdd(text.trim(),due); setText(""); setDue(""); setOpen(false); } if(e.key==="Escape") setOpen(false); }}
+            placeholder="Task description…" autoFocus
+            style={{ background:"#0d0d0f", border:`1px solid ${color}55`, borderRadius:8,
+              padding:"8px 10px", fontSize:12, color:"#e4e4e7", outline:"none", width:"100%", boxSizing:"border-box" }}/>
+          <div style={{ display:"flex", gap:6 }}>
+            <input type="date" value={due} onChange={e=>setDue(e.target.value)}
+              style={{ flex:1, background:"#0d0d0f", border:"1px solid #27272a", borderRadius:8,
+                padding:"6px 8px", fontSize:11, color:"#71717a", outline:"none" }}/>
+            <button onClick={()=>{ if(text.trim()){ onAdd(text.trim(),due); setText(""); setDue(""); setOpen(false); } }} style={{
+              padding:"6px 14px", borderRadius:8, border:"none", background:color,
+              color:"#000", fontWeight:700, fontSize:12, cursor:"pointer",
+            }}>Add</button>
+            <button onClick={()=>setOpen(false)} style={{
+              padding:"6px 10px", borderRadius:8, border:"1px solid #27272a", background:"transparent",
+              color:"#71717a", cursor:"pointer", fontSize:12,
+            }}>✕</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── App ────────────────────────────────────────────────
 export default function App() {
   const [authed, setAuthed] = useState(() => {
@@ -1808,6 +2289,9 @@ export default function App() {
             )}
           </div>
         </section>
+
+        {/* PROJECTS & CALENDAR */}
+        <ProjectsSection API={API} authFetch={authFetch} recordings={recordings}/>
 
         {/* RECORDINGS */}
         <section>

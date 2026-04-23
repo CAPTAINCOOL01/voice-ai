@@ -102,6 +102,22 @@ const Recording = mongoose.model("Recording", {
   createdAt:   { type: Date, default: Date.now },
 });
 
+const Project = mongoose.model("Project", {
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  name:        String,
+  emoji:       { type: String, default: "📁" },
+  color:       { type: String, default: "#f59e0b" },
+  description: { type: String, default: "" },
+  tasks: [{
+    text:        String,
+    done:        { type: Boolean, default: false },
+    dueDate:     Date,
+    recordingId: String,
+    createdAt:   { type: Date, default: Date.now },
+  }],
+  createdAt: { type: Date, default: Date.now },
+});
+
 // ── Multer ────────────────────────────────────────────────
 const upload = multer({
   storage: multer.diskStorage({
@@ -391,6 +407,60 @@ app.delete("/api/user/data", auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ════════════════════════════════════════════════════════
+//  PROJECT ROUTES
+// ════════════════════════════════════════════════════════
+
+app.get("/projects", auth, async (req, res) => {
+  const projects = await Project.find({ userId: req.user._id }).sort({ createdAt: -1 });
+  res.json(projects);
+});
+
+app.post("/projects", auth, async (req, res) => {
+  const { name, emoji, color, description } = req.body;
+  if (!name) return res.status(400).json({ error: "Name required" });
+  const p = await Project.create({ userId: req.user._id, name, emoji: emoji||"📁", color: color||"#f59e0b", description: description||"" });
+  res.json(p);
+});
+
+app.put("/projects/:id", auth, async (req, res) => {
+  const p = await Project.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, req.body, { new: true });
+  if (!p) return res.status(404).json({ error: "Not found" });
+  res.json(p);
+});
+
+app.delete("/projects/:id", auth, async (req, res) => {
+  await Project.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+  res.json({ ok: true });
+});
+
+app.post("/projects/:id/tasks", auth, async (req, res) => {
+  const { text, dueDate, recordingId } = req.body;
+  const p = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!p) return res.status(404).json({ error: "Not found" });
+  p.tasks.push({ text, dueDate: dueDate ? new Date(dueDate) : undefined, recordingId });
+  await p.save();
+  res.json(p);
+});
+
+app.put("/projects/:id/tasks/:taskId", auth, async (req, res) => {
+  const p = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!p) return res.status(404).json({ error: "Not found" });
+  const task = p.tasks.id(req.params.taskId);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+  Object.assign(task, req.body);
+  await p.save();
+  res.json(p);
+});
+
+app.delete("/projects/:id/tasks/:taskId", auth, async (req, res) => {
+  const p = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!p) return res.status(404).json({ error: "Not found" });
+  p.tasks.pull({ _id: req.params.taskId });
+  await p.save();
+  res.json(p);
 });
 
 // ════════════════════════════════════════════════════════
