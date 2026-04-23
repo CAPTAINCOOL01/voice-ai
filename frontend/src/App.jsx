@@ -367,7 +367,7 @@ function Markdown({ text }) {
     if (/^###\s/.test(l)) {
       out.push(<p key={i} style={{ fontWeight:700, fontSize:11, color:"#9ca3af", margin:"18px 0 6px", textTransform:"uppercase", letterSpacing:"0.08em" }}>{l.replace(/^###\s/,"")}</p>);
     } else if (/^##\s/.test(l)) {
-      out.push(<p key={i} style={{ fontWeight:700, fontSize:14, color:"#f4f4f5", margin:"20px 0 10px 0" }}>{l.replace(/^##\s/,"")}</p>);
+      out.push(<p key={i} style={{ fontWeight:700, fontSize:14, color:"#f4f4f5", margin:"22px 0 10px 0", display:"flex", alignItems:"center", gap:6 }}>{l.replace(/^##\s/,"")}</p>);
     } else if (/^#\s/.test(l)) {
       out.push(<p key={i} style={{ fontWeight:800, fontSize:15, color:"#ffffff", margin:"20px 0 10px 0" }}>{l.replace(/^#\s/,"")}</p>);
     } else if (/^[-*]\s/.test(l)) {
@@ -430,15 +430,25 @@ ${rec.summary ? `\nSummary: ${rec.summary}` : ""}
 ${rec.tags?.length ? `\nTags: ${rec.tags.join(", ")}` : ""}
 ${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet.)"}
 
-FORMATTING RULES — follow strictly:
-- Always use ## for section headers (e.g. ## Main Decisions)
-- Every bullet MUST be on its own new line starting with "- "
-- Never put multiple bullets on one line separated by dashes
-- Use **bold** only for key terms
-- Add a blank line between each section
-- Keep each bullet point short — max 1 sentence
-- Never write long paragraphs
-- Do not start with "The speaker" — write directly and clearly`;
+RESPONSE STYLE — follow exactly:
+- Be descriptive and thorough — explain the context behind each point, not just the raw fact
+- Use emojis at the start of every ## section header to make it visual and easy to scan
+- Every bullet point must be on its own line starting with "- "
+- Each bullet should be 1-2 sentences with enough detail to be useful on its own
+- Use **bold** to highlight the most important words or phrases in each bullet
+- Add a blank line between every section
+- Never write walls of text — always use bullets and headers
+- Write in second person ("you decided", "you mentioned") not "the speaker"
+- If something is unclear or not mentioned, say so honestly
+
+EXAMPLE of good formatting:
+## 🎯 Main Decisions
+- You decided to **prioritize project X** over project Y because of the upcoming deadline next week.
+- You chose to **reach out to HR** about your employment situation before making any final moves.
+
+## ✅ Action Items
+- **Set tasks** for your ongoing personal projects before end of week.
+- **Research backup internet options** to handle the connectivity issues you mentioned.`;
 
   const STARTERS = [
     "What were the main decisions made?",
