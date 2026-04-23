@@ -1190,7 +1190,7 @@ function Skeleton() {
 const PROJECT_COLORS = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4","#f97316"];
 const PROJECT_EMOJIS = ["📁","🚀","💡","🎯","🔥","📊","🛠️","🎨","📝","⚡","🌟","💼"];
 
-function ProjectsSection({ API, authFetch, recordings, externalProjects, onProjectsChange }) {
+function ProjectsSection({ API, authFetch, recordings, externalProjects, onProjectsChange, onBack }) {
   const [_projects, _setProjects]     = useState([]);
   const projects = externalProjects || _projects;
   const setProjects = (v) => { _setProjects(v); onProjectsChange && onProjectsChange(v); };
@@ -1286,9 +1286,23 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
   return (
     <section style={{ marginBottom:56 }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:24 }}>
-        <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", margin:0 }}>
-          🗂️ Projects
-        </h2>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          {onBack && (
+            <button onClick={onBack} style={{
+              display:"flex", alignItems:"center", gap:6, padding:"7px 14px", borderRadius:10,
+              border:"1px solid #27272a", background:"transparent", color:"#71717a",
+              cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif",
+              transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
+              ← Back
+            </button>
+          )}
+          <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", margin:0 }}>
+            🗂️ Projects
+          </h2>
+        </div>
         <button onClick={() => setShowNewProject(true)} style={{
           display:"flex", alignItems:"center", gap:6, padding:"9px 18px", borderRadius:12,
           background:"linear-gradient(135deg,#f59e0b,#fb923c)", border:"none", cursor:"pointer",
@@ -1454,32 +1468,50 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
                     {p.tasks.length === 0 && (
                       <p style={{ fontSize:12, color:"#3f3f46", textAlign:"center", padding:"12px 0", margin:0 }}>No tasks yet — add one below or assign from a recording</p>
                     )}
-                    {p.tasks.map(t=>(
-                      <div key={t._id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 0",
+                    {p.tasks.map(t=>{
+                      const due = t.dueDate ? new Date(t.dueDate) : null;
+                      const isOverdue = due && due < today && !t.done;
+                      const isDueSoon = due && !t.done && !isOverdue && (due - today) < 3*24*60*60*1000;
+                      const statusLabel = t.done ? "Done" : isOverdue ? "Overdue" : isDueSoon ? "Due soon" : due ? "Pending" : null;
+                      const statusColor = t.done ? "#4ade80" : isOverdue ? "#f87171" : isDueSoon ? "#fbbf24" : "#a1a1aa";
+                      const statusBg    = t.done ? "rgba(74,222,128,.12)" : isOverdue ? "rgba(248,113,113,.12)" : isDueSoon ? "rgba(251,191,36,.12)" : "rgba(161,161,170,.08)";
+                      return (
+                      <div key={t._id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 0",
                         borderBottom:"1px solid #1a1a1d" }}>
                         <button onClick={()=>toggleTask(p._id, t._id, !t.done)} style={{
-                          width:18, height:18, borderRadius:5, flexShrink:0, marginTop:2, cursor:"pointer",
+                          width:20, height:20, borderRadius:6, flexShrink:0, marginTop:1, cursor:"pointer",
                           background: t.done?p.color:"transparent", border:`2px solid ${t.done?p.color:"#3f3f46"}`,
-                          display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s",
+                          display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s",
+                          boxShadow: t.done?`0 0 8px ${p.color}55`:"none",
                         }}>
                           {t.done && <svg width="10" height="10" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>}
                         </button>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <p style={{ margin:0, fontSize:12, color: t.done?"#52525b":"#d4d4d8",
+                          <p style={{ margin:"0 0 4px", fontSize:12, color: t.done?"#52525b":"#e4e4e7",
                             textDecoration: t.done?"line-through":"none", lineHeight:1.5 }}>{t.text}</p>
-                          {t.dueDate && (
-                            <p style={{ margin:"2px 0 0", fontSize:11, color: new Date(t.dueDate)<today&&!t.done?"#f87171":"#52525b" }}>
-                              📅 {new Date(t.dueDate).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-                            </p>
-                          )}
+                          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                            {statusLabel && (
+                              <span style={{ fontSize:10, fontWeight:700, color:statusColor,
+                                background:statusBg, borderRadius:6, padding:"2px 7px", letterSpacing:"0.02em" }}>
+                                {t.done ? "✓ " : isOverdue ? "⚠ " : isDueSoon ? "⏰ " : ""}{statusLabel}
+                              </span>
+                            )}
+                            {due && (
+                              <span style={{ fontSize:10, color:"#52525b" }}>
+                                {due.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <button onClick={()=>deleteTask(p._id, t._id)} style={{
-                          background:"none", border:"none", cursor:"pointer", color:"#27272a", padding:2, transition:"color 0.15s",
+                          background:"none", border:"none", cursor:"pointer", color:"#27272a", padding:2,
+                          fontSize:16, lineHeight:1, transition:"color 0.15s",
                         }}
                         onMouseEnter={e=>e.currentTarget.style.color="#f87171"}
                         onMouseLeave={e=>e.currentTarget.style.color="#27272a"}>×</button>
                       </div>
-                    ))}
+                      );
+                    })}
                     {/* Quick add task */}
                     <QuickAddTask onAdd={(text,due)=>addTask(p._id, text, due)} color={p.color}/>
                   </div>
@@ -1549,7 +1581,7 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
         {/* Calendar grid */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)" }}>
           {Array.from({ length: firstDay }).map((_,i)=>(
-            <div key={`e${i}`} style={{ minHeight:80, borderRight:"1px solid #1a1a1d", borderBottom:"1px solid #1a1a1d", background:"#0d0d0f" }}/>
+            <div key={`e${i}`} style={{ minHeight:90, borderRight:"1px solid #1a1a1d", borderBottom:"1px solid #1a1a1d", background:"#0d0d0f" }}/>
           ))}
           {Array.from({ length: daysInMonth }).map((_,i)=>{
             const day  = i+1;
@@ -1558,34 +1590,61 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
             const dayTasks = tasksByDate[key] || [];
             const isToday  = date.toDateString() === today.toDateString();
             const col   = (firstDay+i) % 7;
+            const doneCnt = dayTasks.filter(t=>t.done).length;
+            const pendCnt = dayTasks.length - doneCnt;
             return (
               <div key={day} style={{
-                minHeight:80, padding:"8px 6px",
+                minHeight:90, padding:"7px 6px",
                 borderRight: col<6?"1px solid #1a1a1d":"none",
                 borderBottom:"1px solid #1a1a1d",
-                background: isToday?"rgba(245,158,11,.04)":"transparent",
+                background: isToday?"rgba(245,158,11,.05)":"transparent",
                 transition:"background 0.15s",
               }}>
-                <div style={{
-                  width:26, height:26, borderRadius:"50%", marginBottom:4,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background: isToday?"#f59e0b":"transparent",
-                  fontFamily:"'Sora',sans-serif", fontWeight: isToday?700:400,
-                  fontSize:12, color: isToday?"#000":"#52525b",
-                }}>{day}</div>
-                {dayTasks.slice(0,3).map((t,ti)=>(
-                  <div key={ti} title={t.text} style={{
-                    fontSize:10, padding:"2px 6px", borderRadius:5, marginBottom:2,
-                    background:`${t.projectColor}22`, color:t.projectColor,
+                {/* Day number row */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                  <div style={{
+                    width:24, height:24, borderRadius:"50%",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    background: isToday?"#f59e0b":"transparent",
+                    fontFamily:"'Sora',sans-serif", fontWeight: isToday?700:400,
+                    fontSize:11, color: isToday?"#000":"#52525b", flexShrink:0,
+                  }}>{day}</div>
+                  {dayTasks.length > 0 && (
+                    <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+                      {doneCnt > 0 && (
+                        <span style={{ fontSize:9, fontWeight:700, color:"#4ade80",
+                          background:"rgba(74,222,128,.12)", borderRadius:5, padding:"1px 5px" }}>
+                          ✓{doneCnt}
+                        </span>
+                      )}
+                      {pendCnt > 0 && (
+                        <span style={{ fontSize:9, fontWeight:700, color:"#f59e0b",
+                          background:"rgba(245,158,11,.12)", borderRadius:5, padding:"1px 5px" }}>
+                          {pendCnt}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {/* Task chips */}
+                {dayTasks.slice(0,2).map((t,ti)=>(
+                  <div key={ti} title={`${t.projectName}: ${t.text}`} style={{
+                    fontSize:9, padding:"2px 5px", borderRadius:5, marginBottom:2,
+                    background: t.done ? "rgba(74,222,128,.10)" : `${t.projectColor}20`,
+                    color: t.done ? "#4ade80" : t.projectColor,
                     overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                     fontWeight:600, display:"flex", alignItems:"center", gap:3,
+                    textDecoration: t.done ? "line-through" : "none",
+                    opacity: t.done ? 0.7 : 1,
                   }}>
-                    <span style={{ fontSize:9 }}>{t.projectEmoji}</span>
+                    <span style={{ fontSize:8 }}>{t.projectEmoji}</span>
                     {t.text}
                   </div>
                 ))}
-                {dayTasks.length>3 && (
-                  <div style={{ fontSize:10, color:"#52525b", padding:"1px 6px" }}>+{dayTasks.length-3} more</div>
+                {dayTasks.length > 2 && (
+                  <div style={{ fontSize:9, color:"#52525b", padding:"1px 5px", fontWeight:600 }}>
+                    +{dayTasks.length-2} more
+                  </div>
                 )}
               </div>
             );
@@ -2000,7 +2059,12 @@ export default function App() {
         background:"rgba(9,9,11,.9)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)" }}>
         <div className="nav-inner" style={{ maxWidth:820, margin:"0 auto", padding:"0 20px", height:56,
           display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setCurrentPage("home")} style={{
+            display:"flex", alignItems:"center", gap:10, background:"none", border:"none",
+            cursor:"pointer", padding:0, transition:"opacity 0.15s",
+          }}
+          onMouseEnter={e=>e.currentTarget.style.opacity="0.8"}
+          onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
             <div style={{ width:32, height:32, borderRadius:12, background:"linear-gradient(135deg,#f59e0b,#fb923c)",
               display:"flex", alignItems:"center", justifyContent:"center" }}>
               <svg width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -2008,7 +2072,7 @@ export default function App() {
               </svg>
             </div>
             <span style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:15, color:"#fff" }}>VoiceNote AI</span>
-          </div>
+          </button>
           <div style={{ display:"flex", alignItems:"center", gap:20 }}>
             {recordings.length > 0 && (
               <div className="nav-stats" style={{ display:"flex", gap:16 }}>
@@ -2103,7 +2167,8 @@ export default function App() {
         {/* PROJECTS PAGE */}
         {currentPage === "projects" && (
           <ProjectsSection API={API} authFetch={authFetch} recordings={recordings}
-            externalProjects={projects} onProjectsChange={setProjects}/>
+            externalProjects={projects} onProjectsChange={setProjects}
+            onBack={()=>setCurrentPage("home")}/>
         )}
 
         {currentPage !== "projects" && <>
