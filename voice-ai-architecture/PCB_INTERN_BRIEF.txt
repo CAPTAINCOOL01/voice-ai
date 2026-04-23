@@ -1,7 +1,7 @@
 ================================================================================
        VoiceNote AI — PCB Design Brief for Intern
        Prepared by: Ramayana Singh
-       Date: April 2026
+       Date: April 2026  |  Version: 1.1 (battery monitoring added)
 ================================================================================
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -38,6 +38,8 @@ LED1— Green LED (status / device online indicator)
 LED2— Red LED (recording indicator)
 R1  — 220Ω resistor (current limit for LED1)
 R2  — 220Ω resistor (current limit for LED2)
+R3  — 100kΩ resistor (battery voltage divider — top leg, BAT+ side)
+R4  — 100kΩ resistor (battery voltage divider — bottom leg, GND side)
 C1  — 100µF electrolytic capacitor (bulk decoupling on 3.3V rail)
 C2  — 10µF electrolytic capacitor (decoupling near ESP32 VCC)
 C3  — 100nF ceramic capacitor (high-freq decoupling near ESP32)
@@ -73,7 +75,21 @@ ESP32-C3 Super Mini GPIO assignments:
 
   LEDs:
     GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  (green, status)
-    GPIO 1  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  (red, recording)
+    GPIO 20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND  (red, recording)
+
+  Battery Voltage Monitor (NEW — v1.1):
+    BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+
+    GPIO 1 is an ADC-only input. Do NOT connect any other signal to this pin.
+    LED2 is on GPIO 20 (not GPIO 1) specifically to free GPIO 1 for the ADC.
+
+    Voltage divider function:
+      4.2V (full battery) → 2.1V at GPIO 1 → firmware reads 100%
+      3.7V (half charge)  → 1.85V at GPIO 1 → firmware reads ~58%
+      3.0V (empty)        → 1.5V at GPIO 1  → firmware reads 0%
+
+    The firmware sends battery % to the backend every 6 seconds.
+    The web app displays it as a live battery indicator in the navbar.
 
   Power:
     5V (USB or TP4056 OUT+) → ESP32 5V pin
@@ -135,6 +151,12 @@ Decoupling capacitors (VERY important — do not skip):
   - C2 (10µF)  — on 3.3V rail, near ESP32 VCC pin (in parallel with C1)
   - C3 (100nF) — on 3.3V rail, as close as physically possible to ESP32 VCC
   - C4 (100nF) — on INMP441 VDD pin, as close as physically possible
+
+Battery voltage divider (R3 + R4):
+  - Place R3 and R4 near the TP4056 BAT+ pad and GPIO 1 trace
+  - Keep the trace from R3/R4 midpoint to GPIO 1 short (under 20mm)
+  - Route away from I2S and SPI lines to avoid noise coupling into the ADC
+  - Do NOT place this trace near the antenna area
 
 Antenna clearance:
   - ESP32-C3 Super Mini has a PCB antenna on one end

@@ -1,7 +1,8 @@
 ================================================================================
        VoiceNote AI — Complete Product Build Guide for Intern
        Prepared by: Ramayana Singh  |  Date: April 2026
-       Version: 1.0  |  Status: ACTIVE — follow this document exactly
+       Version: 1.1  |  Status: ACTIVE — follow this document exactly
+       Last updated: Battery monitoring added (v1.1)
 ================================================================================
 
 This document takes you from zero to a finished, boxed product:
@@ -54,11 +55,21 @@ LED1       Green LED, 3mm or 5mm (status / online)       1
 LED2       Red LED, 3mm or 5mm (recording active)        1
 R1         220Ω resistor (current limit for LED1)        1
 R2         220Ω resistor (current limit for LED2)        1
+R3         100kΩ resistor (battery voltage divider — top)  1
+R4         100kΩ resistor (battery voltage divider — bottom) 1
 C1         100µF electrolytic capacitor (bulk, 3.3V)     1
 C2         10µF electrolytic capacitor (near ESP32)      1
 C3         100nF ceramic capacitor (near ESP32 VCC)      1
 C4         100nF ceramic capacitor (near INMP441 VDD)    1
 J1         USB-C port — use the one on the TP4056 module
+
+NOTE on R3 + R4 (voltage divider):
+  These two resistors allow the ESP32 to measure the LiPo battery voltage and
+  report battery percentage (0–100%) to the web app in real time.
+  They form a simple 50% voltage divider:
+    BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+  The divider halves battery voltage (max 4.2V → 2.1V) so it stays within
+  the ESP32's 3.3V ADC input range. Do not change resistor values.
 
 Where to buy (India):
   - ESP32-C3 Super Mini : Robu.in, AliExpress
@@ -119,8 +130,33 @@ different pin numbers — IGNORE THEM. Use only this table.
   ├──────────────────────┬────────────────────────────────────────────────  │
   │  GPIO 0              │  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  │
   │                      │    (GREEN — device online / WiFi connected)       │
-  │  GPIO 1              │  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  │
+  │  GPIO 20             │  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  │
   │                      │    (RED — recording in progress)                  │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  !! IMPORTANT — LED2 is on GPIO 20, NOT GPIO 1 !!
+  GPIO 1 is used for battery voltage sensing (ADC input).
+  Connecting LED2 to GPIO 1 will permanently damage the ADC on that pin.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Battery Voltage Monitor  (NEW — added v1.1)                            │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  GPIO 1  (ADC input) │  Midpoint of voltage divider R3/R4               │
+  │                      │                                                  │
+  │  Circuit:            │  BAT+ ──→ R3 (100kΩ) ──→ GPIO 1                 │
+  │                      │                              │                   │
+  │                      │                          R4 (100kΩ)              │
+  │                      │                              │                   │
+  │                      │                             GND                  │
+  │                      │                                                  │
+  │  What it does:       │  ESP32 reads ADC on GPIO 1 every 6 seconds       │
+  │                      │  Converts voltage to battery % (0–100%)          │
+  │                      │  Sends % to backend with every heartbeat         │
+  │                      │  Web app displays battery level in real time      │
+  │                      │                                                  │
+  │  Voltage mapping:    │  4.2V battery → 2.1V at GPIO1 = 100%            │
+  │                      │  3.7V battery → 1.85V at GPIO1 = ~58%           │
+  │                      │  3.0V battery → 1.5V at GPIO1 = 0%  (cut-off)   │
   └──────────────────────┴────────────────────────────────────────────────  ┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
@@ -272,8 +308,16 @@ STEP 2 — Wire the breadboard
     Other side      → GND
 
   Wire LEDs:
-    GPIO 0 → 220Ω resistor → Green LED → GND
-    GPIO 1 → 220Ω resistor → Red LED   → GND
+    GPIO 0  → 220Ω resistor → Green LED → GND
+    GPIO 20 → 220Ω resistor → Red LED   → GND   (NOT GPIO 1 — see below)
+
+  Wire battery voltage divider:
+    BAT+ (TP4056 B+ pad or battery positive wire)
+         → R3 (100kΩ)
+         → GPIO 1 (ADC input)
+         → R4 (100kΩ)
+         → GND
+    (On breadboard you can use the 3.7V battery positive terminal directly)
 
   Insert a MicroSD card (FAT32 formatted) into the module.
 
@@ -543,6 +587,13 @@ These are real mistakes that will waste days of your time. Read this carefully.
 
   Rule: ALWAYS use Section 3 of this document. Never cross-reference pin numbers
   from any other source without asking Ramayana first.
+
+── DO NOT CONNECT LED2 TO GPIO 1 ───────────────────────────────────────────
+
+  GPIO 1 is the battery ADC input. It must only connect to the midpoint of the
+  R3/R4 voltage divider. If you connect an LED or any low-impedance load to
+  GPIO 1, you will damage the ADC permanently and get incorrect readings.
+  LED2 (red, recording) goes to GPIO 20. See Section 3.
 
 ── DO NOT USE GPIO 9 FOR ANYTHING ─────────────────────────────────────────────
 
