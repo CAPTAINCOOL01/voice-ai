@@ -2031,6 +2031,26 @@ export default function App() {
         ::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:2px}
         button:focus{outline:none} input::placeholder{color:#3f3f46}
 
+        /* ── Two-column layout on wide screens ────── */
+        @media(min-width:1080px){
+          .home-grid {
+            display:grid !important;
+            grid-template-columns:420px 1fr !important;
+            gap:28px !important;
+            align-items:start !important;
+          }
+          .home-left  { position:sticky; top:72px; }
+          .home-right { min-width:0; }
+          .nav-inner  { max-width:1280px !important; }
+          .main-pad   { max-width:1280px !important; padding:32px 32px 80px !important; }
+        }
+
+        /* ── Mid-range tablet ───────────────────── */
+        @media(min-width:600px) and (max-width:1079px){
+          .main-pad   { max-width:900px !important; }
+          .nav-inner  { max-width:900px !important; }
+        }
+
         /* ── Mobile ─────────────────────────────── */
         @media(max-width:600px){
           .nav-stats   { display:none !important; }
@@ -2039,8 +2059,8 @@ export default function App() {
           .wave-bars   { height:36px !important; }
           .wave-bars > * { width:3px !important; }
           .rec-btn     { width:72px !important; height:72px !important; }
-          .main-pad    { padding:20px 14px 100px !important; }
-          .recorder-card { padding:24px 16px !important; border-radius:18px !important; }
+          .main-pad    { padding:16px 14px 100px !important; }
+          .recorder-card { padding:20px 14px !important; border-radius:18px !important; }
           .detail-panel {
             position:fixed !important; inset:0 !important;
             width:100% !important; height:100% !important;
@@ -2054,13 +2074,14 @@ export default function App() {
           .rec-actions { max-width:100% !important; }
           .nav-inner   { padding:0 14px !important; }
           .rec-status-badge { font-size:11px !important; }
+          .nav-battery span:last-child { display:none; }
         }
       `}</style>
 
       {/* NAVBAR */}
       <header style={{ position:"sticky", top:0, zIndex:20, borderBottom:"1px solid #1a1a1e",
         background:"rgba(9,9,11,.9)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)" }}>
-        <div className="nav-inner" style={{ maxWidth:820, margin:"0 auto", padding:"0 20px", height:56,
+        <div className="nav-inner" style={{ maxWidth:820, margin:"0 auto", padding:"0 24px", height:56,
           display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <button onClick={()=>setCurrentPage("home")} style={{
             display:"flex", alignItems:"center", gap:10, background:"none", border:"none",
@@ -2199,9 +2220,11 @@ export default function App() {
         )}
 
         {currentPage !== "projects" && <>
+        <div className="home-grid">
+        <div className="home-left">
 
         {/* RECORDER */}
-        <section style={{ marginBottom:48 }}>
+        <section style={{ marginBottom:28 }}>
           <h2 style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:20, color:"#fff", marginBottom:20 }}>
             New Recording
           </h2>
@@ -2400,7 +2423,9 @@ export default function App() {
             </div>
           )}
         </div>
+        </div>{/* end home-left */}
 
+        <div className="home-right">
         {/* RECORDINGS */}
         <section>
           <div className="search-row" style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
@@ -2598,6 +2623,8 @@ export default function App() {
             </div>
           )}
         </section>
+        </div>{/* end home-right */}
+        </div>{/* end home-grid */}
         </>}
 
       </main>
