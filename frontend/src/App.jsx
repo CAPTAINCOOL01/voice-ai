@@ -359,13 +359,13 @@ function Markdown({ text }) {
   let i = 0;
   while (i < lines.length) {
     const l = lines[i];
-    if (/^###\s/.test(l))      { out.push(<p key={i} style={{ fontWeight:700, fontSize:13, color:"#f59e0b", margin:"10px 0 4px" }}>{l.replace(/^###\s/,"")}</p>); }
-    else if (/^##\s/.test(l))  { out.push(<p key={i} style={{ fontWeight:700, fontSize:14, color:"#fbbf24", margin:"12px 0 4px" }}>{l.replace(/^##\s/,"")}</p>); }
-    else if (/^#\s/.test(l))   { out.push(<p key={i} style={{ fontWeight:700, fontSize:15, color:"#fbbf24", margin:"14px 0 6px" }}>{l.replace(/^#\s/,"")}</p>); }
-    else if (/^[-*]\s/.test(l)){ out.push(<div key={i} style={{ display:"flex", gap:8, margin:"2px 0" }}><span style={{ color:"#f59e0b", flexShrink:0 }}>•</span><span>{renderInline(l.replace(/^[-*]\s/,""))}</span></div>); }
-    else if (/^\d+\.\s/.test(l)){ const n=l.match(/^(\d+)\.\s/)[1]; out.push(<div key={i} style={{ display:"flex", gap:8, margin:"2px 0" }}><span style={{ color:"#f59e0b", flexShrink:0, minWidth:16 }}>{n}.</span><span>{renderInline(l.replace(/^\d+\.\s/,""))}</span></div>); }
-    else if (l.trim()==="")    { out.push(<div key={i} style={{ height:6 }}/>); }
-    else                       { out.push(<p key={i} style={{ margin:"2px 0", lineHeight:1.65 }}>{renderInline(l)}</p>); }
+    if (/^###\s/.test(l))      { out.push(<p key={i} style={{ fontWeight:700, fontSize:11, color:"#f59e0b", margin:"14px 0 6px", textTransform:"uppercase", letterSpacing:"0.06em" }}>{l.replace(/^###\s/,"")}</p>); }
+    else if (/^##\s/.test(l))  { out.push(<p key={i} style={{ fontWeight:700, fontSize:13, color:"#fbbf24", margin:"16px 0 8px", borderBottom:"1px solid #2a2a2e", paddingBottom:5 }}>{l.replace(/^##\s/,"")}</p>); }
+    else if (/^#\s/.test(l))   { out.push(<p key={i} style={{ fontWeight:700, fontSize:15, color:"#fbbf24", margin:"16px 0 8px" }}>{l.replace(/^#\s/,"")}</p>); }
+    else if (/^[-*]\s/.test(l)){ out.push(<div key={i} style={{ display:"flex", gap:10, margin:"5px 0", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0, marginTop:1 }}>•</span><span style={{ lineHeight:1.7 }}>{renderInline(l.replace(/^[-*]\s/,""))}</span></div>); }
+    else if (/^\d+\.\s/.test(l)){ const n=l.match(/^(\d+)\.\s/)[1]; out.push(<div key={i} style={{ display:"flex", gap:10, margin:"5px 0", alignItems:"flex-start" }}><span style={{ color:"#f59e0b", flexShrink:0, minWidth:18, marginTop:1 }}>{n}.</span><span style={{ lineHeight:1.7 }}>{renderInline(l.replace(/^\d+\.\s/,""))}</span></div>); }
+    else if (l.trim()==="")    { out.push(<div key={i} style={{ height:8 }}/>); }
+    else                       { out.push(<p key={i} style={{ margin:"4px 0", lineHeight:1.75 }}>{renderInline(l)}</p>); }
     i++;
   }
   return <div style={{ fontSize:13, color:"#d4d4d8" }}>{out}</div>;
@@ -399,8 +399,14 @@ ${rec.summary ? `\nSummary: ${rec.summary}` : ""}
 ${rec.tags?.length ? `\nTags: ${rec.tags.join(", ")}` : ""}
 ${rec.transcript ? `\nFull transcript:\n${rec.transcript}` : "\n(No transcript available yet.)"}
 
-Help the user understand and get value from this recording. Be concise, direct, and conversational.
-Format responses clearly — use bullet points and headers where helpful.`;
+FORMATTING RULES — follow strictly:
+- Use ## for section headers
+- Use bullet points (- ) for lists, one item per line
+- Use **bold** only for key terms or important phrases
+- Put a blank line between every section
+- Never write long paragraphs — break into short bullets
+- Keep responses concise and scannable
+- Do not start sentences with "The speaker" — write directly`;
 
   const STARTERS = [
     "What were the main decisions made?",
@@ -523,37 +529,45 @@ Format responses clearly — use bullet points and headers where helpful.`;
             <div key={i} style={{ display:"flex", flexDirection:"column",
               alignItems: m.role === "user" ? "flex-end" : "flex-start",
               animation:"fadeUp 0.2s ease", gap:4 }}>
-              <div style={{
-                maxWidth:"88%", padding:"10px 14px", borderRadius:14,
-                background: m.role === "user" ? "linear-gradient(135deg,#f59e0b,#fb923c)" : "#18181b",
-                border: m.role === "assistant" ? "1px solid #27272a" : "none",
-                color: m.role === "user" ? "white" : "#d4d4d8",
-                lineHeight:1.65,
-                borderBottomRightRadius: m.role === "user" ? 4 : 14,
-                borderBottomLeftRadius:  m.role === "assistant" ? 4 : 14,
-              }}>
-                {m.role === "assistant" ? <Markdown text={m.content}/> : <span style={{ fontSize:13 }}>{m.content}</span>}
-              </div>
-              {m.role === "assistant" && (
-                <button onClick={() => copyMsg(m.content, i)} style={{
-                  background:"none", border:"none", cursor:"pointer", color: copied===i ? "#a78bfa" : "#3f3f46",
-                  fontSize:11, padding:"2px 6px", borderRadius:6, display:"flex", alignItems:"center", gap:4,
-                  transition:"color 0.2s",
+              {m.role === "user" ? (
+                <div style={{
+                  maxWidth:"82%", padding:"10px 14px", borderRadius:18, borderBottomRightRadius:4,
+                  background:"linear-gradient(135deg,#f59e0b,#fb923c)",
+                  color:"white", fontSize:13, lineHeight:1.6,
                 }}>
-                  {copied===i ? "✓ Copied" : "Copy"}
-                </button>
+                  {m.content}
+                </div>
+              ) : (
+                <div style={{ maxWidth:"95%", display:"flex", flexDirection:"column", gap:6 }}>
+                  <div style={{
+                    padding:"14px 16px", borderRadius:18, borderBottomLeftRadius:4,
+                    background:"#1c1c1f", border:"1px solid #2a2a2e",
+                    lineHeight:1.8,
+                  }}>
+                    <Markdown text={m.content}/>
+                  </div>
+                  <button onClick={() => copyMsg(m.content, i)} style={{
+                    background:"none", border:"none", cursor:"pointer",
+                    color: copied===i ? "#a78bfa" : "#3f3f46",
+                    fontSize:11, padding:"2px 4px", borderRadius:6,
+                    display:"flex", alignItems:"center", gap:4, alignSelf:"flex-start",
+                    transition:"color 0.2s",
+                  }}>
+                    {copied===i ? "✓ Copied" : "Copy"}
+                  </button>
+                </div>
               )}
             </div>
           ))}
 
           {/* Streaming token display */}
           {loading && (
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, animation:"fadeUp 0.2s ease" }}>
-              <div style={{ maxWidth:"88%", padding:"10px 14px", borderRadius:14, borderBottomLeftRadius:4,
-                background:"#18181b", border:"1px solid #27272a" }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:4, animation:"fadeUp 0.2s ease", maxWidth:"95%" }}>
+              <div style={{ padding:"14px 16px", borderRadius:18, borderBottomLeftRadius:4,
+                background:"#1c1c1f", border:"1px solid #2a2a2e", lineHeight:1.8 }}>
                 {streaming
                   ? <Markdown text={streaming + "▌"}/>
-                  : <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+                  : <div style={{ display:"flex", gap:5, alignItems:"center", padding:"4px 0" }}>
                       {[0,1,2].map(j=>(
                         <div key={j} style={{ width:6,height:6,borderRadius:"50%",background:"#52525b",
                           animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
