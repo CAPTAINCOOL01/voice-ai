@@ -1,0 +1,690 @@
+================================================================================
+       VoiceNote AI — Complete Product Build Guide for Intern
+       Prepared by: Ramayana Singh  |  Date: April 2026
+       Version: 1.0  |  Status: ACTIVE — follow this document exactly
+================================================================================
+
+This document takes you from zero to a finished, boxed product:
+
+  PHASE 1 → Breadboard verification (confirm everything works before PCB)
+  PHASE 2 → PCB schematic + layout in EasyEDA
+  PHASE 3 → Fabrication (ordering from JLCPCB)
+  PHASE 4 → PCB assembly + testing
+  PHASE 5 → 3D-printed enclosure + final assembly
+
+Read every section before touching any hardware. Do not skip phases.
+
+================================================================================
+SECTION 1 — WHAT THIS DEVICE DOES
+================================================================================
+
+VoiceNote AI is a pocket-sized AI voice recorder that:
+
+  1. Records audio via a digital I2S MEMS microphone (INMP441)
+  2. Saves the recording as a .WAV file on a MicroSD card
+  3. Connects automatically to WiFi on boot
+  4. When recording stops, uploads the WAV file to a cloud server over HTTPS
+  5. The cloud backend transcribes the audio using OpenAI Whisper
+  6. The user views transcripts, AI summaries, and tasks in a web app
+
+User controls:
+  - SW2 (power switch)  → slides to turn the whole device ON / OFF
+  - SW1 (record switch) → SPDT toggle:
+                            flip UP   = starts recording (GPIO8 reads HIGH)
+                            flip DOWN = stops recording, saves file, uploads
+
+The firmware is COMPLETE and TESTED. The intern's job is hardware only.
+Do NOT modify any code. Do NOT change any GPIO pin assignments.
+
+================================================================================
+SECTION 2 — COMPLETE COMPONENT LIST
+================================================================================
+
+Reference  Component                                    Qty
+---------  -----------------------------------------  ----
+U1         ESP32-C3 Super Mini                           1
+U2         INMP441 I2S digital MEMS microphone module    1
+U3         MicroSD card module (SPI, 3.3V compatible)    1
+U4         TP4056 LiPo charger module (USB-C, with
+           built-in over-discharge protection)           1
+SW1        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
+SW2        SPSS slide switch, 2-pin (power ON/OFF)       1
+BAT        3.7V single-cell LiPo (1000–2000 mAh)        1
+LED1       Green LED, 3mm or 5mm (status / online)       1
+LED2       Red LED, 3mm or 5mm (recording active)        1
+R1         220Ω resistor (current limit for LED1)        1
+R2         220Ω resistor (current limit for LED2)        1
+C1         100µF electrolytic capacitor (bulk, 3.3V)     1
+C2         10µF electrolytic capacitor (near ESP32)      1
+C3         100nF ceramic capacitor (near ESP32 VCC)      1
+C4         100nF ceramic capacitor (near INMP441 VDD)    1
+J1         USB-C port — use the one on the TP4056 module
+
+Where to buy (India):
+  - ESP32-C3 Super Mini : Robu.in, AliExpress
+  - INMP441 module      : Robu.in, Amazon.in
+  - MicroSD module      : Robu.in, Amazon.in
+  - TP4056 module       : Robu.in, ElectronicWings
+  - Capacitors, LEDs,
+    Resistors           : Robu.in, LCSC (for PCB-mount SMD parts)
+  - LiPo battery        : Robu.in, Amazon.in (1000mAh recommended for v1)
+
+================================================================================
+SECTION 3 — GPIO PIN MAPPING (AUTHORITATIVE — FROM FIRMWARE)
+================================================================================
+
+!! WARNING !!
+These pin numbers come directly from the working firmware.
+Other sources (ChatGPT, tutorials, datasheets for other boards) may show
+different pin numbers — IGNORE THEM. Use only this table.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  INMP441 Microphone  (I2S protocol)                                     │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  GPIO 3              │  INMP441 SD   (serial data out)                  │
+  │  GPIO 4              │  INMP441 WS   (word select / LRCK)               │
+  │  GPIO 5              │  INMP441 SCK  (bit clock)                        │
+  │  GND                 │  INMP441 L/R  (tie to GND = left channel mono)   │
+  │  3.3V                │  INMP441 VDD                                     │
+  │  GND                 │  INMP441 GND                                     │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  MicroSD Module  (SPI protocol)                                         │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  GPIO 6              │  SD SCK   (SPI clock)                            │
+  │  GPIO 7              │  SD MOSI  (data to SD)                           │
+  │  GPIO 2              │  SD MISO  (data from SD)                         │
+  │  GPIO 10             │  SD CS    (chip select)                          │
+  │  3.3V or 5V          │  SD VCC   (CHECK YOUR MODULE — see note below)   │
+  │  GND                 │  SD GND                                          │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  NOTE on SD VCC:
+    Some MicroSD modules have an onboard 3.3V regulator and accept 5V input.
+    Some need exactly 3.3V. Check the silk-screen or datasheet for your module.
+    If in doubt, use a multimeter on the VCC pin to confirm it is 3.3V before
+    connecting to the ESP32.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Toggle Switch SW1  (recording control)                                 │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  GPIO 8              │  Switch COMMON (middle pin)                      │
+  │  3.3V                │  Switch PIN A  (UP position = start recording)   │
+  │  GND                 │  Switch PIN B  (DOWN position = stop recording)  │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LEDs                                                                   │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  GPIO 0              │  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  │
+  │                      │    (GREEN — device online / WiFi connected)       │
+  │  GPIO 1              │  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  │
+  │                      │    (RED — recording in progress)                  │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Power                                                                  │
+  ├──────────────────────┬────────────────────────────────────────────────  │
+  │  5V (from TP4056     │                                                  │
+  │  OUT+ via SW2)       │  → ESP32-C3 Super Mini 5V pin                   │
+  │  GND                 │  → ESP32-C3 Super Mini GND pin                  │
+  └──────────────────────┴────────────────────────────────────────────────  ┘
+
+================================================================================
+SECTION 4 — POWER ARCHITECTURE (wire in this exact order)
+================================================================================
+
+The TP4056 module handles all charging. The power switch (SW2) only cuts power
+to the ESP32 and peripherals — the battery always remains connected to TP4056
+so it can charge from USB even when the device is switched OFF.
+
+  USB-C ──────────────────→ TP4056  IN+ / IN−
+                                │
+                           TP4056  B+ / B−  ←──→  LiPo Battery (always on)
+                                │
+                           TP4056  OUT+ / OUT−
+                                │
+                              SW2  (power switch — slides to cut power)
+                                │
+                         ┌──────┴───────┐
+                         │              │
+                    ESP32 5V pin    All other modules
+                    ESP32 GND       (SD, INMP441)
+
+  TP4056 LED indicators (on the module itself):
+    Red  LED lit    = currently charging
+    Blue LED lit    = fully charged
+    Both off        = no USB power / battery not connected
+
+  IMPORTANT:
+    The TP4056 module already includes over-charge and over-discharge protection.
+    Do NOT add a second protection circuit — it is redundant and can cause issues.
+    Do NOT reverse battery polarity — it will permanently damage the TP4056.
+
+================================================================================
+SECTION 5 — SYSTEM ARCHITECTURE DIAGRAM
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        VoiceNote AI Device                          │
+  │                                                                     │
+  │  ┌──────────┐    ┌──────────────────────────────────────────────┐  │
+  │  │  USB-C   │    │              ESP32-C3 Super Mini              │  │
+  │  │  Charge  │    │                                              │  │
+  │  └────┬─────┘    │  ┌──────────────┐   ┌────────────────────┐  │  │
+  │       │          │  │ I2S Driver   │   │  WiFi / HTTPS      │  │  │
+  │  ┌────▼─────┐    │  │ (GPIO 3,4,5) │   │  Upload Task       │  │  │
+  │  │  TP4056  │    │  └──────┬───────┘   └────────┬───────────┘  │  │
+  │  │ Charger  │    │         │                     │              │  │
+  │  └────┬─────┘    │  ┌──────▼───────┐   ┌────────▼───────────┐  │  │
+  │       │          │  │ 4KB RAM Buf  │   │  Backend Server    │  │  │
+  │  ┌────▼─────┐    │  └──────┬───────┘   │  (Render.com)      │  │  │
+  │  │  LiPo   │    │         │           │  Whisper + GPT-4   │  │  │
+  │  │ Battery │    │  ┌──────▼───────┐   └────────────────────┘  │  │
+  │  └─────────┘    │  │ SD Card SPI  │                           │  │
+  │                 │  │ (GPIO 2,6,   │                           │  │
+  │  ┌──────────┐   │  │  7,10)       │                           │  │
+  │  │  SW2     │   │  └──────┬───────┘                           │  │
+  │  │  Power   ├───┤         │                                   │  │
+  │  │  Switch  │   │  ┌──────▼───────┐                           │  │
+  │  └──────────┘   │  │  WAV File    │                           │  │
+  │                 │  │  Finalizer   │                           │  │
+  │  ┌──────────┐   │  └──────────────┘                           │  │
+  │  │  SW1     │   │                                             │  │
+  │  │  Record  ├───┤  GPIO 8 → Control Logic                     │  │
+  │  │  Toggle  │   │  GPIO 0 → Green LED (online)                │  │
+  │  └──────────┘   │  GPIO 1 → Red LED (recording)               │  │
+  │                 └──────────────────────────────────────────────┘  │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Data flow summary:
+  INMP441 mic → I2S → 4KB RAM buffer → SD card (WAV format)
+                                              ↓
+                                     Finalize WAV header
+                                              ↓
+                                     Upload via HTTPS POST
+                                              ↓
+                                   Backend → Whisper → Web App
+
+================================================================================
+SECTION 6 — PHASE 1: BREADBOARD VERIFICATION
+================================================================================
+
+Before designing any PCB, confirm the full system works on a breadboard.
+This catches wiring mistakes cheaply. Do not skip this phase.
+
+STEP 1 — Flash the firmware
+──────────────────────────────
+  Software needed:
+    - Arduino IDE 2.x (download from arduino.cc)
+    - ESP32 board package installed in Arduino IDE
+
+  Install ESP32 board package:
+    Arduino IDE → File → Preferences → Additional Boards Manager URLs:
+    Paste: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+    Then: Tools → Board → Boards Manager → search "esp32" → install
+
+  Board settings in Arduino IDE:
+    Board:            ESP32C3 Dev Module
+    Upload Speed:     921600
+    USB CDC on Boot:  Enabled
+    Port:             whichever COM port appears when ESP32 is plugged in
+
+  Open firmware file:
+    voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
+
+  Credentials are stored as environment variables on the server — you do not
+  need to edit the firmware. If credentials are needed for testing, ask Ramayana.
+
+  Click Upload. Wait for "Done uploading."
+
+STEP 2 — Wire the breadboard
+──────────────────────────────
+  Wire exactly as per Section 3.
+  Use jumper wires. Power from USB (3.3V from ESP32's onboard regulator is enough
+  for breadboard testing — no TP4056 needed yet for this step).
+
+  Breadboard power rail:
+    ESP32 3.3V pin → + power rail
+    ESP32 GND      → − power rail
+
+  Wire INMP441:
+    VDD → 3.3V rail
+    GND → GND rail
+    SD  → GPIO 3
+    WS  → GPIO 4
+    SCK → GPIO 5
+    L/R → GND rail
+
+  Wire MicroSD module:
+    VCC  → 3.3V rail (or 5V if your module needs it)
+    GND  → GND rail
+    SCK  → GPIO 6
+    MOSI → GPIO 7
+    MISO → GPIO 2
+    CS   → GPIO 10
+
+  Wire SW1 (use any 3-pin switch or simulate with jumper wires):
+    Common (middle) → GPIO 8
+    One side        → 3.3V
+    Other side      → GND
+
+  Wire LEDs:
+    GPIO 0 → 220Ω resistor → Green LED → GND
+    GPIO 1 → 220Ω resistor → Red LED   → GND
+
+  Insert a MicroSD card (FAT32 formatted) into the module.
+
+STEP 3 — Test
+──────────────────────────────
+  Open Arduino IDE Serial Monitor at 115200 baud.
+  Power the ESP32.
+
+  Expected sequence:
+    1. Green LED blinks while connecting to WiFi
+    2. Green LED stays ON when WiFi is connected
+    3. Serial Monitor shows "WiFi connected"
+    4. Flip SW1 UP → Red LED turns ON, Serial shows "Recording started"
+    5. Speak into the microphone for 5–10 seconds
+    6. Flip SW1 DOWN → Red LED turns OFF
+    7. Serial shows "Uploading…" then "Upload successful"
+    8. Check web app — recording should appear within 30 seconds
+
+  If anything fails, check:
+    - SD card is FAT32 formatted (not exFAT)
+    - SD card VCC is correct voltage for your module
+    - GPIO 9 is NOT used — it has a hardware pullup on the ESP32-C3 Super Mini
+      and causes auto-recording on boot if connected
+    - Check Serial Monitor for error messages
+
+STEP 4 — Sign off before moving to PCB
+──────────────────────────────────────────
+  Get Ramayana's confirmation that the breadboard test passed before
+  proceeding to Phase 2. Send a short video of the recording + upload working.
+
+================================================================================
+SECTION 7 — PHASE 2: PCB DESIGN IN EASYEDA
+================================================================================
+
+Tool: EasyEDA Standard (free, browser-based — easyeda.com)
+      Do NOT use EasyEDA Pro (different file format, harder for review)
+
+Board specifications:
+  Size:   60mm × 60mm  (fits the 3D-printed enclosure)
+  Layers: 2-layer
+  Color:  Black soldermask (matches product aesthetic — optional but preferred)
+
+── STEP 1: SCHEMATIC ───────────────────────────────────────────────────────────
+
+Create a new project in EasyEDA. Start with the schematic.
+
+Place these symbols (search EasyEDA library by part name):
+  - ESP32-C3-MINI-1 (or generic 40-pin header for Super Mini footprint)
+  - INMP441 (or place as 6-pin connector with correct net labels)
+  - MicroSD slot (4-pin SPI + VCC + GND)
+  - TP4056 module (place as a sub-block with IN, B+/B−, OUT pins)
+  - SPDT switch (3-pin)
+  - SPSS switch (2-pin)
+  - LEDs × 2
+  - Resistors × 2 (220Ω)
+  - Capacitors × 4 (100µF, 10µF, 100nF, 100nF)
+
+Label all nets clearly:
+  +3V3, +5V, GND, I2S_SD, I2S_WS, I2S_SCK,
+  SPI_SCK, SPI_MOSI, SPI_MISO, SPI_CS,
+  GPIO8, GPIO0, GPIO1, REC_SW, PWR_SW
+
+Run ERC (Electrical Rules Check) — fix all errors before moving to layout.
+
+── STEP 2: PCB LAYOUT ──────────────────────────────────────────────────────────
+
+Component placement order (place in this sequence):
+
+  1. ESP32-C3 Super Mini — CENTER of board
+       Orient so antenna end points AWAY from all other components
+       (antenna area must be copper-free — see antenna rule below)
+
+  2. INMP441 — TOP-RIGHT AREA, near the top edge
+       The microphone opening must align with the mesh hole in the enclosure lid
+       Place face-up (mic port facing away from PCB)
+
+  3. MicroSD module — RIGHT EDGE of board
+       The card slot opening must align with the right-side cutout in the enclosure
+
+  4. TP4056 module — BOTTOM EDGE, near USB-C side
+       The USB-C port must align with the bottom enclosure cutout
+
+  5. SW1 (record toggle) — LEFT EDGE or FRONT EDGE
+       Must align with the switch cutout in the enclosure side panel
+
+  6. SW2 (power switch) — adjacent to SW1 on the same edge
+       Must align with its cutout in the enclosure
+
+  7. LED1 (green) + LED2 (red) — BOTTOM EDGE
+       Must align with the LED holes in the enclosure base
+
+  8. Decoupling capacitors — AS CLOSE AS PHYSICALLY POSSIBLE to their IC VCC pins
+       C1 + C2 + C3 → within 3mm of ESP32 VCC pin
+       C4           → within 3mm of INMP441 VDD pin
+
+  9. Resistors R1, R2 — between GPIO pads and LED pads
+
+Trace widths:
+  Power traces  (+5V, +3V3, GND, BAT lines) : 1.0mm preferred, 0.5mm minimum
+  Signal traces (I2S, SPI, GPIO)             : 0.3mm preferred, 0.25mm minimum
+
+Ground plane:
+  Bottom layer → full copper pour connected to GND net
+  This eliminates most noise on the microphone and SD card lines
+
+Antenna clearance rule (CRITICAL):
+  The ESP32-C3 Super Mini has a PCB trace antenna on one short end.
+  In EasyEDA, mark a keepout zone around this end:
+    - No copper pour
+    - No traces
+    - No components
+    - No ground plane
+  Violating this will kill WiFi range.
+
+Mounting holes:
+  Add 4 × M2 mounting holes (2.2mm drill, 5mm copper-free pad) at board corners
+  These align with the standoffs inside the 3D-printed enclosure
+
+Board outline:
+  Draw a 60mm × 60mm closed rectangle on the Edge.Cuts / Board Outline layer
+
+── STEP 3: DRC ─────────────────────────────────────────────────────────────────
+
+Run DRC (Design Rule Check) in EasyEDA.
+Target: zero errors, zero airwires remaining.
+If any airwires remain, the schematic and layout are out of sync — fix this
+before sending for fabrication.
+
+================================================================================
+SECTION 8 — PHASE 3: FABRICATION (ORDERING FROM JLCPCB)
+================================================================================
+
+STEP 1 — Export Gerbers from EasyEDA
+  Fabrication → Generate Gerber
+  Download the .zip file
+
+STEP 2 — Order on JLCPCB (jlcpcb.com)
+  Upload the Gerber .zip
+  Settings:
+    Layers:          2
+    Dimensions:      60 × 60 mm
+    Quantity:        5 (order at least 5 — same price as 1 with JLC)
+    PCB Thickness:   1.6mm
+    Surface Finish:  HASL (lead-free) or ENIG (gold, better for pads)
+    Silkscreen:      White
+    Soldermask:      Black (preferred for product look)
+    Remove Order No: Yes (pay the small extra fee — no ugly number on board)
+
+  Estimated cost: USD $2–5 for 5 boards + shipping (~$10–15 total)
+  Lead time: 2–3 days production + ~1 week shipping (DHL Express option)
+
+STEP 3 — Order PCB-mount components from LCSC
+  If you designed with SMD components, order from LCSC (same company as JLC).
+  You can use JLCPCB's assembly service (PCBA) for SMD parts — saves soldering time.
+  For through-hole modules (ESP32, TP4056, SD module), you solder these manually.
+
+================================================================================
+SECTION 9 — PHASE 4: PCB ASSEMBLY AND TESTING
+================================================================================
+
+Tools needed:
+  - Soldering iron (temperature-controlled, set to 320–350°C for lead-free solder)
+  - Solder (0.8mm, lead-free or 60/40)
+  - Flux (paste flux helps with small pads)
+  - Multimeter
+  - USB-C cable
+  - MicroSD card (formatted FAT32)
+  - Computer with Arduino IDE
+
+STEP 1 — Inspect bare PCB
+  Check for shorts, broken traces, missing pads.
+  Compare against your EasyEDA layout visually.
+
+STEP 2 — Solder in this order (easiest to hardest)
+  1. Resistors R1, R2         (flat, easy)
+  2. Capacitors C3, C4        (small ceramics, do these before big electrolytics)
+  3. Capacitors C1, C2        (electrolytics — polarity matters, stripe = negative)
+  4. LEDs                     (flat side of LED = cathode = GND side)
+  5. ESP32-C3 Super Mini      (pin headers or direct solder)
+  6. INMP441 module
+  7. MicroSD module
+  8. TP4056 module
+  9. SW1, SW2                 (switches last — they are tall)
+  10. LiPo battery connector  (JST 2-pin or solder wires directly)
+
+STEP 3 — Pre-power checks with multimeter
+  Before plugging in anything:
+  a) Measure resistance between +3V3 and GND → should NOT be 0Ω (would mean short)
+  b) Measure resistance between +5V and GND → should NOT be 0Ω
+  c) Visually inspect all solder joints under bright light or magnifier
+
+STEP 4 — First power-on
+  Connect USB-C (no battery yet).
+  TP4056 red LED should light up (charging) or blue (no battery = float state).
+  ESP32 onboard LED may blink.
+  Open Serial Monitor → confirm WiFi connects → confirm green LED turns on.
+
+STEP 5 — Full function test (same as breadboard test in Phase 1)
+  Insert SD card, flip record switch, speak, flip back, confirm upload on web app.
+
+================================================================================
+SECTION 10 — PHASE 5: 3D-PRINTED ENCLOSURE AND FINAL ASSEMBLY
+================================================================================
+
+The enclosure is a two-part 3D-printed box.
+
+Enclosure design requirements:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LID (top half)                                                         │
+  │    - Circular mesh hole (top area) → aligns with INMP441 mic port       │
+  │    - Side cutout for SW1 (record toggle switch body)                    │
+  │    - Side cutout for SW2 (power switch body)                            │
+  └─────────────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  BASE (bottom half)                                                     │
+  │    - Side cutout for USB-C port (TP4056 module port)                    │
+  │    - Side cutout for MicroSD card slot                                  │
+  │    - Small circular hole (bottom-right) for green LED                   │
+  │    - Small circular hole (bottom) for red LED                           │
+  │    - 4 × M2 threaded inserts or screw holes at corners for PCB standoffs│
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Internal stack (bottom to top):
+    1. LiPo battery (sits in base, held with double-sided foam tape)
+    2. PCB on M2 brass standoffs (3–5mm height to clear battery)
+    3. Lid snaps or screws onto base
+
+3D model file:
+  The enclosure STL files will be provided separately.
+  If changes are needed (cutout positions don't align), measure the PCB
+  component positions and report back to Ramayana.
+
+Print settings (recommended):
+  Material:    PLA or PETG
+  Layer height: 0.15mm (fine detail for cutouts)
+  Infill:       25%
+  Supports:     Yes for overhangs near cutouts
+
+Final assembly steps:
+  1. Press M2 brass inserts into base corners with soldering iron (heat-set)
+  2. Secure LiPo battery in base with foam tape
+  3. Connect battery JST connector to PCB or TP4056 B+/B−
+  4. Screw PCB onto standoffs with M2 screws
+  5. Route any wires for switches/LEDs if they are not directly on the PCB
+  6. Close lid and secure with M2 screws
+
+================================================================================
+SECTION 11 — COMMON MISTAKES TO AVOID
+================================================================================
+
+These are real mistakes that will waste days of your time. Read this carefully.
+
+── WRONG GPIO PINS FROM OTHER SOURCES ─────────────────────────────────────────
+
+  Several AI tools (including ChatGPT) suggest the following — ALL WRONG:
+
+  What ChatGPT says      │  What the firmware actually uses
+  ───────────────────────┼──────────────────────────────────
+  I2S SD  → GPIO 6       │  I2S SD  → GPIO 3   ← CORRECT
+  I2S WS  → GPIO 5       │  I2S WS  → GPIO 4   ← CORRECT
+  I2S SCK → GPIO 4       │  I2S SCK → GPIO 5   ← CORRECT
+  SPI SCK → GPIO 3       │  SPI SCK → GPIO 6   ← CORRECT
+
+  If you wire using those wrong numbers, the microphone captures silence and
+  the SD card fails — and the error messages will look like hardware failures,
+  not wiring mistakes. You will waste hours debugging.
+
+  Rule: ALWAYS use Section 3 of this document. Never cross-reference pin numbers
+  from any other source without asking Ramayana first.
+
+── DO NOT USE GPIO 9 FOR ANYTHING ─────────────────────────────────────────────
+
+  The ESP32-C3 Super Mini has a hardware-level pullup resistor on GPIO 9.
+  This is the BOOT button pin.
+  If you connect anything to GPIO 9, the device will behave randomly on boot
+  or auto-start recording before you touch any switch.
+  GPIO 9 is reserved by the hardware — leave it unconnected.
+
+── DO NOT ADD AN EXTERNAL LDO REGULATOR ────────────────────────────────────────
+
+  ChatGPT recommends adding an AMS1117-3.3 LDO to your design.
+  This is wrong for this project.
+  The TP4056 module already regulates output voltage.
+  The ESP32-C3 Super Mini has its own built-in 3.3V regulator.
+  Adding a second LDO creates voltage stacking problems and wastes board space.
+  Do not add it.
+
+── DO NOT SKIP DECOUPLING CAPACITORS ───────────────────────────────────────────
+
+  The ESP32 pulls up to 250mA in bursts during WiFi transmit.
+  The SD card pulls sudden current during write operations.
+  Without decoupling capacitors, you will see:
+    - Random ESP32 resets during WiFi upload
+    - SD card file corruption
+    - Audio noise / hissing
+  The capacitors listed in Section 2 are the minimum viable set. Do not remove any.
+
+── FORMAT THE SD CARD CORRECTLY ────────────────────────────────────────────────
+
+  The firmware requires FAT32 format.
+  Windows default for cards > 32GB is exFAT — the firmware cannot read this.
+  Use a card that is 32GB or smaller, or manually format to FAT32.
+  On Windows: right-click the card in File Explorer → Format → FAT32.
+  On Mac: Disk Utility → Erase → MS-DOS (FAT).
+
+── DO NOT CONNECT THE BATTERY BACKWARDS ────────────────────────────────────────
+
+  LiPo batteries have red (positive) and black (negative) wires.
+  The TP4056 module has B+ and B− pads clearly marked.
+  Reversed polarity permanently destroys the TP4056 and may cause the battery
+  to swell or vent. Double-check polarity before connecting.
+
+── ANTENNA KEEPOUT IS NOT OPTIONAL ─────────────────────────────────────────────
+
+  If you route copper pour or traces under the ESP32-C3 antenna area,
+  WiFi range drops dramatically (sometimes to under 1 metre).
+  The firmware relies on WiFi to upload recordings.
+  Mark and enforce the keepout zone in EasyEDA before routing.
+
+── DO NOT MODIFY THE FIRMWARE ──────────────────────────────────────────────────
+
+  The firmware is tested and working in production.
+  Any change to GPIO numbers, I2S config, SPI config, or upload logic
+  requires a full regression test on the breadboard before committing.
+  If you think a change is needed, ask Ramayana — do not edit and assume.
+
+================================================================================
+SECTION 12 — DELIVERABLES CHECKLIST
+================================================================================
+
+Phase 1 — Breadboard
+  [ ] Breadboard wired per Section 3
+  [ ] Firmware flashed successfully
+  [ ] WiFi connects, green LED stays on
+  [ ] Recording starts/stops with SW1
+  [ ] Upload completes and appears in web app
+  [ ] Short video sent to Ramayana for sign-off
+
+Phase 2 — PCB Design
+  [ ] EasyEDA schematic complete, ERC passes
+  [ ] PCB layout complete, DRC passes with zero errors
+  [ ] All traces routed, no airwires
+  [ ] Ground plane on bottom layer
+  [ ] Antenna keepout zone marked
+  [ ] Board outline 60×60mm
+  [ ] Gerber files exported and zipped
+
+Phase 3 — Fabrication
+  [ ] Gerbers uploaded to JLCPCB
+  [ ] Order placed (min 5 boards)
+  [ ] Component order placed (LCSC or Robu)
+
+Phase 4 — Assembly
+  [ ] Pre-power short circuit check passed
+  [ ] All components soldered
+  [ ] First power-on successful
+  [ ] Full function test passed (matches Phase 1 behavior)
+
+Phase 5 — Enclosure
+  [ ] All cutouts aligned with component positions
+  [ ] PCB secured on standoffs
+  [ ] Battery connected and secured
+  [ ] Lid closes cleanly
+  [ ] Device functions normally inside enclosure
+  [ ] Final product video sent to Ramayana
+
+================================================================================
+SECTION 13 — FIRMWARE REFERENCE (DO NOT CHANGE)
+================================================================================
+
+Firmware location:
+  voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
+
+Flash settings in Arduino IDE:
+  Board:            ESP32C3 Dev Module
+  Upload Speed:     921600
+  USB CDC on Boot:  Enabled
+  Flash Mode:       QIO 80MHz
+  Partition Scheme: Default 4MB with spiffs
+
+The firmware does the following automatically:
+  - Connects to WiFi on boot (credentials embedded via environment)
+  - Reads GPIO 8 for switch state every loop iteration
+  - GPIO HIGH → starts I2S capture, opens WAV file on SD, turns on red LED
+  - GPIO LOW  → stops capture, finalizes WAV header, sends heartbeat "idle"
+                to backend, then uploads WAV file over HTTPS multipart POST
+  - Sends heartbeat every 6 seconds to keep the web app status indicator live
+  - Green LED reflects WiFi/online status
+
+Backend endpoint (already deployed on Render.com):
+  POST https://voice-ai-da3b.onrender.com/save
+  Authentication: X-Api-Key header (stored in firmware as environment variable)
+
+================================================================================
+SECTION 14 — CONTACT & ESCALATION
+================================================================================
+
+Project owner: Ramayana Singh
+Email:         ramayanaprav@gmail.com
+GitHub:        https://github.com/CAPTAINCOOL01/voice-ai
+
+When to ask before proceeding:
+  - Any pin number you are unsure about
+  - Any component substitution (different brand/model)
+  - Any enclosure dimension change
+  - Any DRC error you cannot resolve
+  - Any firmware behavior that seems wrong
+
+Do not guess. A wrong guess on a PCB costs 2 weeks (fabrication + rework).
+A 5-minute message to Ramayana costs nothing.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

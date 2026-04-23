@@ -1,0 +1,221 @@
+================================================================================
+       VoiceNote AI — PCB Design Brief for Intern
+       Prepared by: Ramayana Singh
+       Date: April 2026
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — WHAT THIS DEVICE DOES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VoiceNote AI is a pocket-sized voice recording device that:
+
+1. Records audio via a digital MEMS microphone (INMP441)
+2. Saves the recording as a .WAV file on a MicroSD card
+3. Connects to WiFi automatically
+4. Uploads the WAV file to a cloud backend (Render.com) over HTTPS
+5. The cloud backend transcribes it using OpenAI Whisper and stores it
+6. The user accesses recordings and AI summaries via a web app
+
+The user controls recording using a 3-pin SPDT toggle switch:
+  - Flip UP  → starts recording
+  - Flip DOWN → stops recording, saves file, uploads to cloud
+
+There is also a power switch to turn the whole device on/off.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — COMPLETE COMPONENT LIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+U1  — ESP32-C3 Super Mini (main microcontroller, WiFi built-in)
+U2  — INMP441 (I2S digital MEMS microphone module)
+U3  — MicroSD card module (SPI interface)
+U4  — TP4056 (LiPo battery charger module with protection, USB-C input)
+SW1 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent)
+SW2 — SPSS slide or rocker power switch (ON/OFF, 2-pin)
+BAT — 3.7V LiPo battery (recommended: 1000–2000mAh single cell)
+LED1— Green LED (status / device online indicator)
+LED2— Red LED (recording indicator)
+R1  — 220Ω resistor (current limit for LED1)
+R2  — 220Ω resistor (current limit for LED2)
+C1  — 100µF electrolytic capacitor (bulk decoupling on 3.3V rail)
+C2  — 10µF electrolytic capacitor (decoupling near ESP32 VCC)
+C3  — 100nF ceramic capacitor (high-freq decoupling near ESP32)
+C4  — 100nF ceramic capacitor (decoupling near INMP441 VDD)
+J1  — USB-C connector (or use the one already on TP4056 module)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — COMPLETE PIN MAPPING (from firmware)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ESP32-C3 Super Mini GPIO assignments:
+
+  INMP441 Microphone (I2S):
+    GPIO 3  → INMP441 SD   (data out)
+    GPIO 4  → INMP441 WS   (word select / LRCK)
+    GPIO 5  → INMP441 SCK  (bit clock)
+    GND     → INMP441 L/R  (set to left channel)
+    3.3V    → INMP441 VDD
+    GND     → INMP441 GND
+
+  MicroSD Card Module (SPI):
+    GPIO 6  → SD SCK
+    GPIO 7  → SD MOSI
+    GPIO 2  → SD MISO
+    GPIO 10 → SD CS (chip select)
+    5V/3.3V → SD VCC  (check your module — some need 5V, some 3.3V)
+    GND     → SD GND
+
+  Toggle Switch (recording control):
+    GPIO 8  → Switch COMMON (middle pin)
+    3.3V    → Switch PIN A  (one outer pin — flip this way = record)
+    GND     → Switch PIN B  (other outer pin — flip this way = stop)
+
+  LEDs:
+    GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  (green, status)
+    GPIO 1  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  (red, recording)
+
+  Power:
+    5V (USB or TP4056 OUT+) → ESP32 5V pin
+    GND                     → ESP32 GND
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — POWER ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT: Wire power in this exact order so battery charges even when device is off.
+
+  USB-C ──→ TP4056 IN+ / IN-
+               │
+            TP4056 B+ / B- ──→ LiPo Battery (always connected)
+               │
+            TP4056 OUT+ / OUT- ──→ SW2 (power switch) ──→ ESP32 VIN + all modules
+                                       │
+                                      GND rail
+
+  Why this order:
+  - TP4056 is always powered from USB regardless of SW2 position
+  - SW2 only cuts power to ESP32 and peripherals
+  - Battery charges whether the device is ON or OFF as long as USB is plugged in
+
+  TP4056 LED indicators:
+  - Red LED on module = charging
+  - Blue/Green LED on module = fully charged
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — PCB DESIGN REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tool: EasyEDA (free, browser-based at easyeda.com)
+
+Board size target: ~60mm × 60mm (to fit the enclosure shown in product renders)
+
+Layer: 2-layer PCB is sufficient
+
+Trace widths:
+  - Power traces (VCC, GND, BAT):  0.5mm minimum, 1mm preferred
+  - Signal traces (SPI, I2S, GPIO): 0.25mm minimum
+
+Ground plane:
+  - Add a copper pour ground plane on the bottom layer
+  - This reduces noise on the microphone and SPI lines significantly
+
+Component placement priorities:
+  1. ESP32-C3 Super Mini — center of board
+  2. INMP441 — place near top edge (microphone hole in enclosure lid)
+  3. MicroSD — place near right edge (slot accessible from side)
+  4. TP4056 — near USB-C port edge
+  5. Power switch — near edge for enclosure cutout
+  6. Toggle switch — near edge for enclosure cutout
+  7. LEDs — near bottom edge facing the enclosure LED holes
+  8. Decoupling caps — place as close as possible to their IC's VCC pin
+
+Decoupling capacitors (VERY important — do not skip):
+  - C1 (100µF) — on 3.3V rail, near ESP32 VCC pin
+  - C2 (10µF)  — on 3.3V rail, near ESP32 VCC pin (in parallel with C1)
+  - C3 (100nF) — on 3.3V rail, as close as physically possible to ESP32 VCC
+  - C4 (100nF) — on INMP441 VDD pin, as close as physically possible
+
+Antenna clearance:
+  - ESP32-C3 Super Mini has a PCB antenna on one end
+  - Keep that end of the board free of copper pours, traces, and components
+  - No ground plane under the antenna area
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — ENCLOSURE REFERENCE (from product renders)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The enclosure is a 3D-printed two-part box (lid + base):
+
+  Lid (top):
+    - Circular mesh hole (top-right) → microphone (INMP441 faces up here)
+    - Toggle switch cutout (side)
+    - Power switch cutout (side)
+
+  Base (bottom):
+    - USB-C port cutout (side, for TP4056 charging)
+    - MicroSD slot cutout (side)
+    - Status LED hole (bottom-right corner, green)
+    - Recording LED hole (bottom, red)
+    - 4x corner mounting holes for M2 screws
+
+  PCB layers (bottom to top inside enclosure):
+    1. LiPo battery (sits in base)
+    2. PCB (screwed into standoffs)
+    3. Lid closes on top
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — WHAT THE INTERN NEEDS TO DELIVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 1. EasyEDA schematic file (.json) with all components and connections
+        wired exactly as per Section 3 and Section 4
+
+[ ] 2. PCB layout file (.json) with:
+        - All components placed as per Section 5 priorities
+        - Ground plane on bottom layer
+        - Antenna keepout zone marked
+        - Board outline set to target size (~60×60mm)
+        - All traces routed, no airwires remaining
+        - DRC (Design Rule Check) passing with zero errors
+
+[ ] 3. Gerber files (zipped) ready to send to JLCPCB or PCBWay for fabrication
+
+[ ] 4. BOM (Bill of Materials) listing every component with:
+        - Part name
+        - Value / specs
+        - Quantity
+        - Suggested source (LCSC, Amazon, Robu.in)
+
+[ ] 5. Short note of any design decisions made or questions for review
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — FIRMWARE NOTE (DO NOT CHANGE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The firmware is already written and working. The intern does NOT need to touch
+the code. The PCB must match the GPIO pin assignments exactly as listed in
+Section 3 — changing any pin will break the firmware without a code change.
+
+Firmware file location:
+  voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
+
+Flash using Arduino IDE with:
+  Board: ESP32C3 Dev Module
+  Upload Speed: 921600
+  USB CDC on Boot: Enabled
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9 — CONTACT & QUESTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Project owner: Ramayana Singh
+Email: ramayanaprav@gmail.com
+GitHub: https://github.com/CAPTAINCOOL01/voice-ai
+
+All questions should be directed to Ramayana before making any design changes.
+Do not guess — if a pin, component, or placement is unclear, ask first.
+
+================================================================================
+END OF BRIEF
+================================================================================
