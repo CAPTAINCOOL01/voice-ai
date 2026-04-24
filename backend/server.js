@@ -184,38 +184,63 @@ async function auth(req, res, next) {
 }
 
 // ── AI helpers ────────────────────────────────────────────
+async function transcribeAudio(filePath) {
+  return openai.audio.transcriptions.create({
+    file:        fs.createReadStream(filePath),
+    model:       "whisper-1",
+    language:    "en",
+    temperature: 0,
+    prompt:      "This is a personal voice memo about work tasks, meetings, ideas, projects, and to-do items. The speaker may mention names, deadlines, technical terms, or product names. Transcribe every word accurately, including incomplete sentences.",
+  });
+}
+
 async function generateNotes(text) {
-  const ai = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You are an expert personal assistant and note-taker. You turn voice recordings into beautifully structured, detailed summaries. Always respond with valid JSON only." },
-      { role: "user",   content: `Analyse this voice recording transcript and return a JSON object with exactly these fields:
+  // Retry once on JSON parse failure
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const ai = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are an expert personal assistant and note-taker. You turn voice recording transcripts into thorough, well-structured notes. The transcript may contain filler words, partial sentences, or informal speech — clean it up and extract the full meaning. Always respond with valid JSON only." },
+          { role: "user",   content: `Analyse this voice recording transcript carefully and return a JSON object with exactly these fields:
 
-"title": string, max 8 words, specific and descriptive
+"title": string — max 8 words, specific and descriptive (e.g. "Weekly Team Sync Follow-Up Tasks", not "Meeting Notes")
 
-"summary": string (IMPORTANT: this must be a plain markdown STRING, not an object or array). Use this format inside the string:
+"summary": string — a plain markdown STRING (not an object or array). Structure it like this:
 
 ## 🗂️ Overview\\n
-2-3 sentences on the topic and context. Write in second person ("you discussed", "you decided").\\n\\n
+2-4 sentences covering what was discussed, decided, or noted. Write in second person ("you discussed", "you mentioned", "you decided"). Even if the recording is short or unclear, extract as much meaning as possible.\\n\\n
 ## 💡 Key Points\\n
-- Each bullet 1-2 sentences with full context and reasoning.\\n
-- Mention names, numbers, projects, deadlines if present.\\n\\n
+- Each bullet is 1-2 full sentences with context, names, numbers, or deadlines if mentioned.\\n
+- Include every distinct topic, idea, or piece of information from the recording.\\n
+- Do not skip minor points — they may be important.\\n\\n
 ## 🔑 Decisions Made\\n
-- List every decision with context for why it was made.\\n\\n
+- List every decision with the context behind it. If no explicit decisions, omit this section.\\n\\n
 ## ⚠️ Challenges & Concerns\\n
-- List problems, blockers, or worries. Omit section if none.\\n\\n
+- List problems, blockers, or worries mentioned. Omit if none.\\n\\n
 ## 🚀 Next Steps\\n
-- List next steps in order of priority.
+- List every next step or follow-up in order of urgency.\\n
+- Include implied next steps even if not explicitly stated.
 
-"tags": array of 4-6 keyword strings
+"tags": array of 4-8 keyword strings covering topics, people, projects, and domains mentioned
 
-"actionItems": array of concrete, actionable to-do items that someone must physically do (e.g. "Send email to John", "Book meeting room", "Review PR #42"). Include ONLY items that require an action — exclude observations, facts, summaries, preferences, or general notes. Max 6 items, plain text, no markdown, no bullet prefix.
+"actionItems": array of concrete, actionable to-do items that require someone to physically do something (e.g. "Send project proposal to Rahul by Friday", "Book the conference room for Thursday 3pm", "Review and merge the authentication PR"). Rules:
+  - Extract EVERY actionable item — do not cap the list
+  - Include implied actions, not just explicitly stated ones
+  - Each item must be self-contained and specific (include names, dates, details from context)
+  - Exclude observations, facts, preferences, or general notes
+  - Plain text only, no markdown, no bullet prefix
+  - If nothing actionable, return an empty array
 
 Transcript: ${text}` },
-    ],
-    response_format: { type: "json_object" },
-  });
-  return JSON.parse(ai.choices[0].message.content);
+        ],
+        response_format: { type: "json_object" },
+      });
+      return JSON.parse(ai.choices[0].message.content);
+    } catch (e) {
+      if (attempt === 1) throw e;
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -475,9 +500,7 @@ app.post("/upload", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
   try {
     const duration = parseFloat(req.body.duration) || 0;
-    const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(localPath), model: "whisper-1",
-    });
+    const transcription = await transcribeAudio(localPath);
     const text    = transcription.text;
     const parsed  = await generateNotes(text);
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
@@ -510,20 +533,44 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
   // while we wait for R2 upload + MongoDB save
   res.json({ status: "ok" });
 
-  // Background processing — errors logged but client already got 200
+  // Background processing — client already got 200, ESP32 won't wait
   try {
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
     console.log(`☁️  Uploaded to R2: ${filename}`);
+
+    // Save immediately with placeholder title so recording appears in UI right away
     const title = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
-    await Recording.create({
+    const recording = await Recording.create({
       userId: req.user._id,
       filename, fileUrl, transcript: "", title,
       summary: "", tags: [], actionItems: [], duration,
     });
-    console.log(`✅ Saved to DB: ${filename}`);
+    console.log(`✅ Saved to DB: ${filename} (id=${recording._id})`);
+
+    // Auto-analyse: transcribe + generate notes without user needing to click
+    console.log(`🎙️  Auto-analysing ${filename}...`);
+    const transcription = await transcribeAudio(localPath);
+    const text = transcription.text;
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+
+    if (text && text.trim().length > 0) {
+      console.log(`✅ Whisper (${text.length} chars): "${text.substring(0, 80)}..."`);
+      const parsed = await generateNotes(text);
+      await Recording.findByIdAndUpdate(recording._id, {
+        transcript:  text,
+        title:       parsed.title       || title,
+        summary:     parsed.summary     || "",
+        tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
+        actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
+      });
+      console.log(`✅ Auto-analysis complete for ${recording._id}`);
+    } else {
+      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+      console.warn(`⚠️  Whisper returned empty transcript for ${filename}`);
+    }
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-    console.error("❌ Save (background):", err);
+    console.error("❌ Save/analyse (background):", err);
   }
 });
 
@@ -554,9 +601,7 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
 
     // Step 3: Transcribe with Whisper
     console.log(`🎙️  Sending ${dlSize} bytes to Whisper...`);
-    const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(tmpPath), model: "whisper-1",
-    });
+    const transcription = await transcribeAudio(tmpPath);
     const text = transcription.text;
     if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
     console.log(`✅ Whisper transcript (${text.length} chars): "${text.substring(0, 80)}..."`);
