@@ -62,6 +62,10 @@ uint32_t lastLog       = 0;
 uint8_t  sdBuf[SD_WRITE_BUF];
 uint16_t sdBufPos = 0;
 
+// HP filter state — reset at start of each recording
+float hpInPrev  = 0.0f;
+float hpOutPrev = 0.0f;
+
 /* ─────────────────────────────────────────
    WAV HELPERS
    ───────────────────────────────────────── */
@@ -283,7 +287,7 @@ void setupI2S() {
     .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count        = 8,
     .dma_buf_len          = 512,
-    .use_apll             = true,   // APLL reduces clock jitter → cleaner audio
+    .use_apll             = false,  // ESP32-C3 Arduino I2S driver doesn't reliably support APLL
     .tx_desc_auto_clear   = false,
     .fixed_mclk           = 0
   };
@@ -533,6 +537,10 @@ void loop() {
       } else {
         sprintf(currentFile, "/REC%03u.wav", fileIndex++);
       }
+      // Delete any existing file with the same name before creating a fresh one.
+      // SD.open with FILE_WRITE appends — without this, old audio bleeds into
+      // the new recording and Whisper transcribes the wrong content.
+      if (SD.exists(currentFile)) SD.remove(currentFile);
       wavFile = SD.open(currentFile, FILE_WRITE);
       if (!wavFile) {
         Serial.println("[REC]  ✗ Cannot create file on SD card");
@@ -581,6 +589,7 @@ void loop() {
 
     if (firstRead && br > 0) {
       firstRead = false;
+      hpInPrev = hpOutPrev = 0.0f;  // reset HP filter at start of each recording
       Serial.printf("[I2S]  ✓ Audio flowing — sample[0]=%d\n", buf[0]);
     }
 
@@ -598,12 +607,10 @@ void loop() {
       if (s32 < -32768) s32 = -32768;
 
       // DC-offset / high-pass filter (~25 Hz cutoff at 16 kHz).
-      // Removes slow MEMS bias drift that muddies the low end.
-      static float hp_in_prev = 0.0f, hp_out_prev = 0.0f;
       float in  = (float)s32;
-      float out = 0.995f * (hp_out_prev + in - hp_in_prev);
-      hp_in_prev  = in;
-      hp_out_prev = out;
+      float out = 0.995f * (hpOutPrev + in - hpInPrev);
+      hpInPrev  = in;
+      hpOutPrev = out;
       int16_t s = (int16_t)out;
 
       sdBuf[sdBufPos++] = (uint8_t)(s & 0xFF);
