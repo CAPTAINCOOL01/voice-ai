@@ -29,7 +29,7 @@ VoiceNote AI is a pocket-sized AI voice recorder that:
   6. The user views transcripts, AI summaries, and tasks in a web app
 
 User controls:
-  - SW2 (power switch)  → slides to turn the whole device ON / OFF
+  - SW2 (power switch)  → 3-pin SPDT toggle: flips to turn the whole device ON / OFF
   - SW1 (record switch) → SPDT toggle:
                             flip UP   = starts recording (GPIO8 reads HIGH)
                             flip DOWN = stops recording, saves file, uploads
@@ -49,7 +49,10 @@ U3         MicroSD card module (SPI, 3.3V compatible)    1
 U4         TP4056 LiPo charger module (USB-C, with
            built-in over-discharge protection)           1
 SW1        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
-SW2        SPSS slide switch, 2-pin (power ON/OFF)       1
+SW2        SPDT toggle switch, 3-pin (Si 26 3A 250V) — power ON/OFF  1
+
+NOTE: SW1 and SW2 are the SAME part. Buy 2× Si 26 3A 250V SPDT switches.
+      Identical footprint = one PCB pad pattern for both, easier to order.
 BAT        3.7V single-cell LiPo (1000–2000 mAh)        1
 LED1       Green LED, 3mm or 5mm (status / online)       1
 LED2       Red LED, 3mm or 5mm (recording active)        1
@@ -181,12 +184,20 @@ so it can charge from USB even when the device is switched OFF.
                                 │
                            TP4056  OUT+ / OUT−
                                 │
-                              SW2  (power switch — slides to cut power)
-                                │
-                         ┌──────┴───────┐
-                         │              │
-                    ESP32 5V pin    All other modules
-                    ESP32 GND       (SD, INMP441)
+                         SW2 COMMON (middle pin)    ← power switch
+                          │             │
+                       PIN A          PIN B
+                    (ON position)  (NC — not connected)
+                          │
+                   ┌──────┴───────┐
+                   │              │
+              ESP32 5V pin    All other modules
+              ESP32 GND       (SD, INMP441, LEDs)
+
+  SW2 wiring summary (3-pin SPDT):
+    COMMON (middle) → TP4056 OUT+
+    PIN A           → ESP32 5V pin + SD VCC + INMP441 VDD
+    PIN B           → NC (leave unconnected — this is the OFF position)
 
   TP4056 LED indicators (on the module itself):
     Red  LED lit    = currently charging
@@ -302,10 +313,15 @@ STEP 2 — Wire the breadboard
     MISO → GPIO 2
     CS   → GPIO 10
 
-  Wire SW1 (use any 3-pin switch or simulate with jumper wires):
+  Wire SW2 (power switch, 3-pin SPDT):
+    Common (middle) → TP4056 OUT+  (or your bench 5V supply positive)
+    PIN A           → breadboard + power rail (feeds ESP32 5V + all modules)
+    PIN B           → leave unconnected (NC — open = device OFF)
+
+  Wire SW1 (recording toggle, 3-pin SPDT):
     Common (middle) → GPIO 8
-    One side        → 3.3V
-    Other side      → GND
+    PIN A           → 3.3V  (flip this way = START recording)
+    PIN B           → GND   (flip this way = STOP recording)
 
   Wire LEDs:
     GPIO 0  → 220Ω resistor → Green LED → GND
@@ -369,10 +385,9 @@ Place these symbols (search EasyEDA library by part name):
   - INMP441 (or place as 6-pin connector with correct net labels)
   - MicroSD slot (4-pin SPI + VCC + GND)
   - TP4056 module (place as a sub-block with IN, B+/B−, OUT pins)
-  - SPDT switch (3-pin)
-  - SPSS switch (2-pin)
+  - SPDT switch (3-pin) × 2  ← both SW1 and SW2 are the same part, same footprint
   - LEDs × 2
-  - Resistors × 2 (220Ω)
+  - Resistors × 4 (2× 220Ω for LEDs, 2× 100kΩ for battery divider)
   - Capacitors × 4 (100µF, 10µF, 100nF, 100nF)
 
 Label all nets clearly:

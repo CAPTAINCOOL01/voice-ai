@@ -31,8 +31,11 @@ U1  — ESP32-C3 Super Mini (main microcontroller, WiFi built-in)
 U2  — INMP441 (I2S digital MEMS microphone module)
 U3  — MicroSD card module (SPI interface)
 U4  — TP4056 (LiPo battery charger module with protection, USB-C input)
-SW1 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent)
-SW2 — SPSS slide or rocker power switch (ON/OFF, 2-pin)
+SW1 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent) — recording control
+SW2 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent) — power ON/OFF
+
+NOTE: Both switches are the SAME part (Si 26 3A 250V SPDT, 3-pin).
+      Buy 2 of the same switch — simplifies sourcing and the PCB footprint is identical.
 BAT — 3.7V LiPo battery (recommended: 1000–2000mAh single cell)
 LED1— Green LED (status / device online indicator)
 LED2— Red LED (recording indicator)
@@ -68,10 +71,21 @@ ESP32-C3 Super Mini GPIO assignments:
     5V/3.3V → SD VCC  (check your module — some need 5V, some 3.3V)
     GND     → SD GND
 
-  Toggle Switch (recording control):
+  SW1 — Recording Toggle (SPDT, 3-pin):
     GPIO 8  → Switch COMMON (middle pin)
-    3.3V    → Switch PIN A  (one outer pin — flip this way = record)
-    GND     → Switch PIN B  (other outer pin — flip this way = stop)
+    3.3V    → Switch PIN A  (one outer pin — flip this way = START recording)
+    GND     → Switch PIN B  (other outer pin — flip this way = STOP recording)
+
+  SW2 — Power Switch (SPDT, 3-pin):
+    TP4056 OUT+  → Switch COMMON (middle pin)
+    ESP32 5V +
+    all modules  → Switch PIN A  (ON position — power flows to device)
+    NC           → Switch PIN B  (OFF position — leave this pin unconnected)
+
+    WHY 3-pin for power: The SPDT middle pin carries current from the TP4056.
+    Flipping to PIN A connects power to the ESP32 and peripherals (device ON).
+    Flipping to PIN B opens the circuit (device OFF). PIN B is left unconnected.
+    This way both switches are identical parts — same footprint, same sourcing.
 
   LEDs:
     GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  (green, status)
@@ -105,7 +119,10 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
                │
             TP4056 B+ / B- ──→ LiPo Battery (always connected)
                │
-            TP4056 OUT+ / OUT- ──→ SW2 (power switch) ──→ ESP32 VIN + all modules
+            TP4056 OUT+ / OUT- ──→ SW2 COMMON (middle pin)
+                                       │
+                               SW2 PIN A ──→ ESP32 VIN + all modules
+                               SW2 PIN B ──→ NC (not connected)
                                        │
                                       GND rail
 
