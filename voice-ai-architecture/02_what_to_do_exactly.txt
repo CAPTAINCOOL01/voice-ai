@@ -1,0 +1,412 @@
+================================================================================
+       VoiceNote AI — PCB Intern Task Specification
+       Prepared by: Ramayana Singh
+       Date: April 2026  |  Version: 1.0
+================================================================================
+
+Read 01_what_is_the_product.txt before this document.
+This file tells you exactly what to build, step by step, with no ambiguity.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — AUTHORITATIVE PIN MAP (copy these exactly, do not change)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+These are the GPIO assignments from the firmware. The PCB must match exactly.
+Changing any pin requires a firmware code change — do not do this without
+checking with Ramayana first.
+
+  INMP441 Microphone (I2S):
+    GPIO 3  → SD   (serial data out from mic)
+    GPIO 4  → WS   (word select / LRCK)
+    GPIO 5  → SCK  (bit clock / BCLK)
+    3.3V    → VDD
+    GND     → GND
+    GND     → L/R  (ties mic to left channel)
+
+  MicroSD Card Module (SPI):
+    GPIO 6  → SCK
+    GPIO 7  → MOSI
+    GPIO 2  → MISO
+    GPIO 10 → CS   (chip select)
+    VCC     → VCC  (see note below)
+    GND     → GND
+
+    NOTE on SD VCC: most cheap SD breakout modules accept 5V input and have
+    their own 3.3V regulator on board. Check your specific module. If it has
+    an onboard regulator, connect to TP4056 OUT+ (battery voltage ~3.7-4.2V
+    is also acceptable for most modules). If it is a raw card slot with no
+    regulator, use the ESP32's 3.3V output.
+
+  SW1 — Recording Toggle (SPDT, 3-pin):
+    GPIO 8  → COMMON (middle pin)
+    3.3V    → PIN A  (flip this way = START recording)
+    GND     → PIN B  (flip this way = STOP recording)
+
+  SW2 — Power Switch (SPDT, 3-pin):
+    TP4056 OUT+  → COMMON (middle pin)
+    ESP32 VIN +
+    SD VCC +
+    INMP441 VDD  → PIN A  (ON — power flows to all modules)
+    NC           → PIN B  (OFF — leave unconnected)
+
+  LED1 — Green (status/online):
+    GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND
+
+  LED2 — Red (recording):
+    GPIO 20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND
+
+  Battery Voltage Divider:
+    LiPo BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+
+    GPIO 1 is ADC-only. Do NOT connect any other signal to it.
+    This divider halves battery voltage: max 4.2V → 2.1V at GPIO1,
+    safely within the ESP32's 3.3V ADC input range.
+
+    Optional but recommended: 100nF ceramic cap from GPIO1 to GND,
+    placed right at the GPIO1 pad, to filter ADC switching noise.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — COMPLETE BILL OF MATERIALS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ref   Component                    Value / Spec              Qty   Where to buy
+────  ───────────────────────────  ────────────────────────  ───   ──────────────────────────
+U1    ESP32-C3 Super Mini          WiFi MCU module           1     Robu.in / AliExpress
+U2    INMP441 module               I2S MEMS mic breakout     1     Robu.in / Amazon
+U3    MicroSD card module          SPI, 3.3V or 5V           1     Robu.in / Amazon
+U4    TP4056 module                USB-C, with protection    1     Robu.in / Amazon
+SW1   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in
+SW2   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in (same part)
+BAT   LiPo battery                 3.7V, 1000–2000 mAh      1     Robu.in / Amazon
+LED1  Green LED                    3mm or 5mm, ~2V Vf        1     LCSC / local electronics
+LED2  Red LED                      3mm or 5mm, ~2V Vf        1     LCSC / local electronics
+R1    Resistor                     220Ω, 1/4W                1     LCSC / local
+R2    Resistor                     220Ω, 1/4W                1     LCSC / local
+R3    Resistor                     100kΩ, 1/4W               1     LCSC / local
+R4    Resistor                     100kΩ, 1/4W               1     LCSC / local
+C1    Electrolytic capacitor       100µF, 10V+               1     LCSC / local
+C2    Electrolytic capacitor       10µF, 10V+                1     LCSC / local
+C3    Ceramic capacitor            100nF (0.1µF)             1     LCSC / local
+C4    Ceramic capacitor            100nF (0.1µF)             1     LCSC / local
+C5    Ceramic capacitor (optional) 100nF, GPIO1 ADC filter   1     LCSC / local
+
+Total unique components: 19 lines (SW1 and SW2 are the same part — buy 2).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — PHASE 1: BREADBOARD PROTOTYPE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Build and test on a breadboard before designing the PCB.
+This saves you from re-spinning the board due to a wiring mistake.
+
+STEP 1 — Power rails
+  a. Connect TP4056 USB-C to a USB power source.
+  b. TP4056 OUT+ → SW2 COMMON, TP4056 OUT- → GND rail.
+  c. SW2 PIN A → ESP32 VIN, SW2 PIN B → leave unconnected.
+  d. Flip SW2 to ON. Measure 3.3V between ESP32 3V3 pin and GND.
+     If you get 0V or 5V, stop and recheck wiring before proceeding.
+
+STEP 2 — Recording switch (SW1)
+  e. SW1 COMMON → GPIO8.
+  f. SW1 PIN A (start) → 3.3V rail.
+  g. SW1 PIN B (stop)  → GND rail.
+  h. Add PULLDOWN resistor (10kΩ) from GPIO8 to GND if the firmware
+     does not already enable INPUT_PULLDOWN (it does — but good practice).
+
+STEP 3 — LEDs
+  i.  GPIO0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND.
+  j.  GPIO20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND.
+  Note: LED anode is the LONGER leg. Cathode (shorter leg) goes to GND.
+
+STEP 4 — Battery voltage divider
+  k. LiPo BAT+ → R3 (100kΩ) → junction point A → R4 (100kΩ) → GND.
+  l. Junction point A → GPIO1.
+  m. Optional: 100nF cap from GPIO1 to GND right at the junction.
+  VERIFY: with a 3.7V battery, measure ~1.85V at GPIO1 with a multimeter.
+
+STEP 5 — MicroSD card module
+  n. SD SCK  → GPIO6, SD MOSI → GPIO7, SD MISO → GPIO2, SD CS → GPIO10.
+  o. SD VCC  → 3.3V or 5V (check your module).
+  p. SD GND  → GND.
+
+STEP 6 — INMP441 microphone
+  q. INMP441 WS  → GPIO4.
+  r. INMP441 SCK → GPIO5.
+  s. INMP441 SD  → GPIO3.
+  t. INMP441 VDD → 3.3V.
+  u. INMP441 GND → GND.
+  v. INMP441 L/R → GND (sets left channel — required).
+
+STEP 7 — Flash firmware and test
+  - Open Arduino IDE.
+  - Board: "ESP32C3 Dev Module".
+  - Upload Speed: 921600.
+  - Tools → USB CDC on Boot: Enabled.
+  - Flash the firmware from:
+    voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
+  - Open Serial Monitor at 115200 baud.
+  - Expected boot sequence:
+      [LED]  Green LED ON (WiFi connected)
+      [BAT]  Battery: XX%
+      [SD]   SD card OK
+      [I2S]  Microphone ready
+  - Flip SW1 UP → red LED on, "Recording started" in serial.
+  - Flip SW1 DOWN → red LED off, file uploads, appears on web app.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — PHASE 2: SCHEMATIC IN EASYEDA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tool: EasyEDA Standard (free, browser-based at easyeda.com)
+      Use the standard editor, not EasyEDA Pro — different footprint libraries.
+
+SCHEMATIC RULES:
+  - Wire every connection exactly as shown in Section 1.
+  - Label all power nets: +BATT, +3V3, GND. Use net labels, not long wires.
+  - Add value annotations on all passives (R1=220Ω, C1=100µF, etc.).
+  - Add a note on the schematic: "GPIO 1 = ADC ONLY — do not connect other signals"
+  - Add a note: "SW1 and SW2 are identical parts — same footprint"
+
+COMPONENT SEARCH TIPS IN EASYEDA:
+  - ESP32-C3 Super Mini: search "ESP32-C3 SuperMini" or import from LCSC C5447790
+  - INMP441: search "INMP441" — use the module (breakout board) footprint, not bare IC
+  - TP4056 module: search "TP4056 USB-C" — use the module footprint
+  - SD card module: search "MicroSD module SPI"
+  - SPDT switch Si26: search "SS12D00", choose 3-pin SPDT footprint
+
+WHAT TO INCLUDE ON SCHEMATIC:
+  [x] U1  ESP32-C3 Super Mini with all used pins labelled
+  [x] U2  INMP441 (6 pins: VDD, GND, L/R, WS, SCK, SD)
+  [x] U3  MicroSD module (6 pins: VCC, GND, CS, MOSI, MISO, SCK)
+  [x] U4  TP4056 module (IN+, IN-, B+, B-, OUT+, OUT-)
+  [x] SW1 SPDT 3-pin toggle (COMMON, PIN A to 3.3V, PIN B to GND)
+  [x] SW2 SPDT 3-pin power switch (COMMON from TP4056, PIN A to ESP32 VIN)
+  [x] BAT LiPo battery connector (2-pin JST PH 2.0mm recommended)
+  [x] LED1 + R1 (green, GPIO0)
+  [x] LED2 + R2 (red, GPIO20)
+  [x] R3 + R4 voltage divider (GPIO1 midpoint)
+  [x] C5 optional 100nF ADC filter cap at GPIO1
+  [x] C1 100µF near ESP32 VIN
+  [x] C2 10µF near ESP32 VIN (in parallel with C1)
+  [x] C3 100nF as close as possible to ESP32 VCC pin
+  [x] C4 100nF as close as possible to INMP441 VDD pin
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — PHASE 3: PCB LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Board spec:
+  - Size: 60mm × 60mm
+  - Layers: 2 (top copper + bottom copper)
+  - Surface finish: HASL (cheapest, fine for this application)
+  - Minimum trace: 0.25mm signal, 0.5mm power (1mm preferred for power)
+  - Min hole size: 0.3mm
+
+PLACEMENT ORDER (place in this sequence):
+  1. ESP32-C3 Super Mini — centre of board, antenna end pointing AWAY from
+     all other components (see antenna keepout below).
+  2. INMP441 — top edge of board, directly under the lid's mesh hole.
+     Orient so the sound port on the module faces UP (toward lid).
+  3. MicroSD module — right edge, slot facing outward so card is accessible
+     from the side of the enclosure without opening it.
+  4. TP4056 — bottom edge near the USB-C port cutout side.
+  5. SW2 (power switch) — side edge, accessible from the enclosure cutout.
+  6. SW1 (toggle switch) — opposite side edge from SW2, accessible from
+     its enclosure cutout.
+  7. LED1 (green) + LED2 (red) — bottom edge, facing the LED holes in the
+     base of the enclosure. LED bodies must align with hole positions.
+  8. Decoupling caps — place physically adjacent to the IC they serve:
+       C1, C2, C3 → within 3mm of ESP32 VCC/VIN pins
+       C4         → within 2mm of INMP441 VDD pin
+       C5         → within 2mm of GPIO1 pad
+  9. R3 + R4 (voltage divider) — near the TP4056 BAT+ pad, not near the
+     I2S or SPI signal lines.
+  10. R1, R2 — between the ESP32 GPIO pads and each LED.
+
+ROUTING RULES:
+  - Power traces (VCC, GND, BATT): 1mm width minimum.
+  - Signal traces (I2S, SPI, GPIO): 0.25mm minimum.
+  - Keep I2S traces (GPIO 3, 4, 5) SHORT and away from SPI traces (GPIO 6, 7, 2).
+    Running them parallel couples noise from SD writes into the mic audio.
+  - Keep GPIO1 (ADC) trace under 20mm and away from I2S and SPI lines.
+    Switching noise from those buses will degrade the battery reading accuracy.
+  - Via size: 0.8mm outer / 0.4mm drill minimum.
+
+GROUND PLANE:
+  - Add a copper pour on the BOTTOM layer, assigned to GND net.
+  - This shields the microphone from EMI from the SD card and WiFi radio.
+  - Fill the entire bottom layer except the antenna keepout zone.
+
+ANTENNA KEEPOUT ZONE (CRITICAL):
+  - The ESP32-C3 Super Mini has a PCB trace antenna on one short end of the module.
+  - That end of the board (and ~5mm beyond it) must have:
+      NO copper pour (top or bottom)
+      NO traces routed beneath the antenna
+      NO components placed in that zone
+  - Mark it clearly as a keepout region in EasyEDA.
+  - WiFi range drops by 50–80% if you ignore this.
+
+AUDIO QUALITY LAYOUT RULES:
+  - INMP441 must be at least 15mm away from the ESP32 antenna.
+  - INMP441 VDD decoupling cap C4 must be within 2mm — the shorter the trace,
+    the less power-supply noise couples into the audio signal.
+  - Consider adding a ferrite bead (600Ω at 100MHz) in series with INMP441 VDD
+    between the 3.3V rail and C4. This blocks high-frequency switching noise
+    from the LDO and SD card SPI bus from getting into the microphone.
+  - If the SD module and INMP441 module are on the same layer, add a ground
+    pour island between them on the top layer to act as a shield.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — PHASE 4: DESIGN RULE CHECK & GERBER EXPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before exporting:
+  [ ] Run DRC (Design Rule Check) in EasyEDA — zero errors required.
+  [ ] Check "No Connect" flags: SW2 PIN B should have an X (no connect) marker.
+  [ ] Check all airwires are routed — no unconnected nets.
+  [ ] Visually verify the 3D view matches the expected placement.
+  [ ] Confirm board outline is exactly 60mm × 60mm.
+  [ ] Confirm 4× mounting holes (M2, 2.2mm drill) at corners for PCB standoffs.
+
+Gerber export settings for JLCPCB or PCBWay:
+  - Top copper:    GTL
+  - Bottom copper: GBL
+  - Top silkscreen: GTO
+  - Bottom silkscreen: GBO
+  - Top soldermask: GTS
+  - Bottom soldermask: GBS
+  - Board outline: GKO (or GM1)
+  - Drill file: DRL (Excellon format)
+  Zip all files together. Upload the zip directly to JLCPCB / PCBWay.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — COMMON MISTAKES TO AVOID
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MISTAKE 1: Swapping I2S and SPI pins
+  ChatGPT and other AI tools frequently suggest the wrong GPIO assignments.
+  The correct wiring from the firmware is:
+
+  CORRECT (from firmware):           WRONG (commonly suggested by AI):
+  I2S WS  = GPIO4                    I2S WS  = GPIO25  ← wrong chip
+  I2S SCK = GPIO5                    I2S SCK = GPIO26  ← wrong chip
+  I2S SD  = GPIO3                    I2S SD  = GPIO34  ← wrong chip
+  SD SCK  = GPIO6                    SD SCK  = GPIO18  ← wrong
+  SD MOSI = GPIO7                    SD MOSI = GPIO23  ← wrong
+  SD MISO = GPIO2                    SD MISO = GPIO19  ← wrong
+
+  Always use Section 1 of THIS document — not an AI suggestion — as the
+  authoritative pin reference.
+
+MISTAKE 2: LED2 on GPIO1
+  GPIO1 is reserved for the battery ADC. Do NOT connect LED2 to GPIO1.
+  LED2 (red, recording) is on GPIO20. This was changed from an earlier
+  version of the design — make sure you have the current pin map.
+
+MISTAKE 3: Connecting other signals to GPIO9
+  GPIO9 is the ESP32-C3's built-in boot button with a hardware pull-up.
+  It is NOT available as a general GPIO. Leave it unconnected on the PCB.
+
+MISTAKE 4: Tapping the battery divider from the 5V/TP4056-OUT rail
+  The voltage divider for GPIO1 must tap from LiPo BAT+ directly
+  (before SW2), not from the TP4056 output after the switch.
+  This ensures the firmware reads the actual battery voltage even when
+  USB is plugged in, and the reading is correct throughout the full
+  discharge curve (3.0V–4.2V).
+
+MISTAKE 5: Ground plane under the antenna
+  No copper under the ESP32 antenna. Any copper there detunes the antenna
+  and kills WiFi range. Even a GND via under the antenna is harmful.
+
+MISTAKE 6: LED installed backwards
+  LED anode = longer leg = connect to resistor side (GPIO side).
+  LED cathode = shorter leg / flat side on body = connect to GND.
+  If both LEDs don't light up after flashing, check orientation first.
+
+MISTAKE 7: SD card not formatted or wrong filesystem
+  MicroSD must be formatted as FAT32. Cards over 32GB need special tools
+  (Windows only formats >32GB as exFAT, which the SD library can't read).
+  Use a card 8GB–32GB, format with SD Card Formatter from sdcard.org.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — WHAT YOU NEED TO DELIVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 1. Working breadboard prototype
+        - All components wired per Section 1
+        - Firmware flashed and tested
+        - Serial Monitor log showing successful boot, recording, and upload
+        - Short video or photo evidence
+
+[ ] 2. EasyEDA schematic file (.json)
+        - All components and connections per Section 1 + Section 4
+        - All net labels, value annotations, no-connect markers
+
+[ ] 3. EasyEDA PCB layout file (.json)
+        - Components placed per Section 5
+        - Ground plane on bottom layer
+        - Antenna keepout zone marked
+        - Board outline 60×60mm
+        - All traces routed, DRC passing with zero errors
+
+[ ] 4. Gerber files (zipped)
+        - Ready to upload to JLCPCB or PCBWay without modification
+
+[ ] 5. Bill of Materials (CSV or table)
+        - Every component with: ref, description, value, quantity, LCSC part
+          number (if available), alternative source (Amazon/Robu)
+
+[ ] 6. Design notes document
+        - Any decisions you made that weren't specified here
+        - Any components you substituted and why
+        - Any questions or concerns for review before fab
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9 — PRE-FAB VERIFICATION CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Go through this before sending Gerbers to the fab house.
+
+  SCHEMATIC
+  [ ] GPIO 1 is connected ONLY to the R3/R4 voltage divider midpoint
+  [ ] GPIO 9 is NOT connected to anything
+  [ ] GPIO 20 is connected to LED2 (red LED) via R2 (220Ω)
+  [ ] SW2 PIN B has a no-connect (X) marker — intentionally unconnected
+  [ ] LiPo BAT+ taps to R3 before SW2 (not after)
+  [ ] TP4056 OUT+ goes to SW2 COMMON, not directly to ESP32 VIN
+  [ ] INMP441 L/R pin tied to GND
+  [ ] All four capacitor types present (C1 100µF, C2 10µF, C3 100nF, C4 100nF)
+
+  PCB LAYOUT
+  [ ] Antenna keepout zone clear of copper on both layers
+  [ ] INMP441 is at least 15mm from the ESP32 antenna
+  [ ] I2S traces (GPIO 3, 4, 5) are not routed parallel to SPI traces
+  [ ] GPIO1 trace is under 20mm and away from SPI/I2S lines
+  [ ] C1, C2, C3 within 3mm of ESP32 VCC pin
+  [ ] C4 within 2mm of INMP441 VDD pin
+  [ ] Ground plane fills entire bottom layer except antenna keepout
+  [ ] Board outline is exactly 60mm × 60mm
+  [ ] Four M2 mounting holes present at corners
+  [ ] DRC passes with zero errors
+  [ ] No airwires remaining in the ratsnest
+
+  GERBERS
+  [ ] All required layers exported (top copper, bottom copper, silkscreen,
+      soldermask, board outline, drill file)
+  [ ] Files are zipped and named clearly
+  [ ] Checked with Gerber viewer (GerberView or JLCPCB preview) before upload
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10 — CONTACT & QUESTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Project owner: Ramayana Singh
+Email:         ramayanaprav@gmail.com
+GitHub:        https://github.com/CAPTAINCOOL01/voice-ai
+
+Do not guess on anything in this document. If a pin, component, value, or
+placement is unclear — ask first. A wrong PCB costs money and time to re-spin.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

@@ -1,0 +1,208 @@
+================================================================================
+       VoiceNote AI — What Is This Product?
+       Prepared by: Ramayana Singh
+       Date: April 2026  |  Version: 1.0
+================================================================================
+
+READ THIS FIRST before touching any hardware or software.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — THE ONE-LINE PITCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VoiceNote AI is a pocket-sized hardware device that records your voice,
+uploads it to the cloud over WiFi, and gives you an AI-generated transcript,
+summary, and action-item list — all accessible from your phone or laptop.
+
+Think of it as a smarter, hardware version of a voice memo app. You flip a
+switch to start talking, flip it back to stop, and within a minute your words
+are searchable, summarised, and turned into tasks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — WHAT HAPPENS WHEN YOU USE IT (user's perspective)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  Turn device ON using the power switch on the side.
+    → Green LED lights up once WiFi connects.
+
+2.  Flip the toggle switch UP to start recording.
+    → Red LED lights up. You can speak freely.
+
+3.  Flip the toggle switch DOWN to stop.
+    → Red LED goes off. Device automatically:
+       a. Saves the audio as a WAV file on the SD card
+       b. Connects to your cloud backend over HTTPS
+       c. Uploads the WAV file
+       d. Cloud runs OpenAI Whisper → transcript
+       e. Cloud runs GPT-4o → summary + action items
+       f. All of it appears on your web app within ~30-60 seconds
+
+4.  Open the web app on your phone/laptop.
+    → You see the recording, transcript, summary, tags, and tasks.
+    → You can assign tasks to Projects, ask an AI assistant about recordings,
+       and view a battery percentage indicator in the top navbar.
+
+5.  If WiFi was not available when you stopped recording:
+    → The WAV is saved on SD. On next boot with WiFi, it uploads automatically.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — HARDWARE INSIDE THE DEVICE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every component and why it exists:
+
+  ESP32-C3 Super Mini
+    The brain. A tiny WiFi-capable microcontroller that runs the firmware.
+    It reads the microphone, writes to the SD card, connects to WiFi, and
+    sends data to the cloud. Do not substitute with a different ESP32 variant
+    without checking GPIO availability.
+
+  INMP441 (I2S MEMS Microphone)
+    The ear. A digital microphone that outputs audio over the I2S protocol.
+    It is far higher quality than an analog microphone and needs no ADC.
+    It is a 24-bit mic, left-channel only (L/R pin tied to GND).
+
+  MicroSD Card Module (SPI)
+    The memory. Audio is written here in WAV format before upload. This is
+    the safety net — if WiFi fails, the file is not lost. Format the card
+    as FAT32, max 32 GB.
+
+  TP4056 (LiPo Charger + Protection)
+    The power manager. Charges the LiPo battery from USB-C. Has built-in
+    overcharge, over-discharge, and short-circuit protection. Also provides
+    the regulated output that feeds the rest of the device through SW2.
+
+  LiPo Battery (3.7V, 1000–2000 mAh)
+    The power source. Single-cell lithium polymer. The firmware reads its
+    charge level (via a voltage divider on GPIO1) and sends battery % to
+    the web app every 6 seconds.
+
+  SW1 — Toggle Switch (3-pin SPDT)
+    The record control. Flip one way = start recording. Flip other = stop.
+    The firmware reads GPIO8: HIGH = record, LOW = stop.
+
+  SW2 — Power Switch (3-pin SPDT)
+    Cuts power to the ESP32 and all modules. TP4056 stays powered so the
+    battery still charges even with SW2 off. Same physical switch as SW1.
+
+  LED1 — Green LED
+    Status indicator. On = device is online and WiFi connected.
+
+  LED2 — Red LED
+    Recording indicator. On = actively recording. Off = idle.
+
+  R3 + R4 — 100kΩ / 100kΩ Voltage Divider
+    Splits the battery voltage in half so the ESP32 ADC (max 3.3V input)
+    can safely read a LiPo (max 4.2V). GPIO1 reads the midpoint.
+
+  R1, R2 — 220Ω Resistors
+    Current limiters for LED1 and LED2. Prevents burning out the LEDs.
+
+  C1, C2, C3 — Decoupling Capacitors (100µF, 10µF, 100nF)
+    Smooth out voltage spikes on the 3.3V power rail. Required for stable
+    ESP32 operation, especially during WiFi transmit bursts.
+
+  C4 — 100nF Ceramic Capacitor
+    Decouples the INMP441 microphone VDD. Prevents power-supply noise from
+    appearing in the audio signal.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — SIGNAL FLOW (what data moves where)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AUDIO PATH:
+  Voice → INMP441 (I2S digital audio) → ESP32 (reads via I2S driver)
+        → WAV file written to SD card (SPI) → uploaded to cloud (HTTPS/WiFi)
+        → OpenAI Whisper (transcription) → GPT-4o-mini (summary + tasks)
+        → MongoDB (stored) → React web app (displayed to user)
+
+CONTROL PATH:
+  SW1 toggle → GPIO8 → ESP32 firmware → starts/stops recording + LED control
+
+STATUS PATH (real-time):
+  ESP32 → HTTPS POST /device/heartbeat every 6 seconds →
+  Backend → WebSocket broadcast → Browser → Live status pill in navbar
+  (includes battery %, recording state, online/offline)
+
+BATTERY PATH:
+  LiPo BAT+ → 100kΩ → GPIO1 (ADC) → 100kΩ → GND
+  ESP32 reads ADC every heartbeat → sends battery % to backend
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — POWER ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+USB-C ──→ TP4056 IN+/IN-        (charging input, always live)
+               │
+            TP4056 B+/B- ──→ LiPo Battery    (always connected)
+               │
+            TP4056 OUT+/OUT- ──→ SW2 COMMON  (middle pin of power switch)
+                                      │
+                              SW2 PIN A ──→ ESP32 VIN + SD + INMP441
+                              SW2 PIN B ──→ NC (device OFF)
+
+Key rule: the TP4056 is ALWAYS powered from USB regardless of SW2 position.
+The battery charges whether the device is on or off.
+
+The ESP32's onboard 3.3V LDO steps down the battery voltage (3.0–4.2V) to 3.3V
+for the MCU, mic, and most peripherals. The SD card may need 5V — check your
+specific module's datasheet (most breakout modules have their own 3.3V regulator
+and accept 5V input).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — THE SOFTWARE STACK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FIRMWARE (C++ / Arduino, runs on ESP32-C3)
+    File: voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
+    Does: mic capture, SD write, WiFi upload, heartbeat, battery reading
+    DO NOT MODIFY — the PCB must match the GPIO pins exactly as specified.
+
+  BACKEND (Node.js / Express, hosted on Render.com)
+    File: backend/server.js
+    Does: receives WAV upload, transcribes with Whisper, summarises with GPT,
+          stores in MongoDB, serves REST API, relays device heartbeat via WebSocket
+
+  FRONTEND (React, served by backend)
+    File: frontend/src/App.jsx
+    Does: login, recordings list, AI chat, projects, calendar, battery indicator
+
+  DATABASE: MongoDB (Atlas)
+  FILE STORAGE: Cloudflare R2 (WAV files stored here after upload)
+  AI MODELS: OpenAI Whisper-1 (transcription), GPT-4o-mini (summarisation)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — PHYSICAL FORM FACTOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Target size: PCB ~60mm × 60mm, enclosed in a 3D-printed two-part box.
+
+  LID (top half):
+    - Mesh hole (top-right) — microphone port, INMP441 faces up through here
+    - Two side cutouts — one for SW1 (toggle), one for SW2 (power)
+
+  BASE (bottom half):
+    - USB-C cutout (side) — for charging via TP4056
+    - MicroSD slot cutout (side) — card insertable without opening device
+    - Green LED hole (bottom-right corner)
+    - Red LED hole (bottom face)
+    - 4× corner mounting holes for M2 screws
+
+  LAYER ORDER inside enclosure (bottom to top):
+    1. LiPo battery — flat against base floor
+    2. PCB — screwed onto standoffs above battery
+    3. Lid — snaps/screws on top
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — CONTACT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Project owner: Ramayana Singh
+Email:         ramayanaprav@gmail.com
+GitHub:        https://github.com/CAPTAINCOOL01/voice-ai
+
+If anything in this document is unclear, ask before assuming.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

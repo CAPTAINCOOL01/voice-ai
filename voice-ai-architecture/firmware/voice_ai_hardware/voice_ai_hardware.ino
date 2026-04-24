@@ -283,7 +283,7 @@ void setupI2S() {
     .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count        = 8,
     .dma_buf_len          = 512,
-    .use_apll             = false,
+    .use_apll             = true,   // APLL reduces clock jitter → cleaner audio
     .tx_desc_auto_clear   = false,
     .fixed_mclk           = 0
   };
@@ -590,8 +590,22 @@ void loop() {
     }
 
     for (size_t i = 0; i < br / 4; i++) {
-      // INMP441: 24-bit audio left-justified in 32-bit word → shift right 14 to get 16-bit
-      int16_t s = (int16_t)((int32_t)buf[i] >> 14);
+      // INMP441: 24-bit left-justified in 32-bit word.
+      // Shift right 11 (was 14) — less gain, prevents clipping on loud speech.
+      // Clamp to int16 range before casting to avoid hard-clip distortion.
+      int32_t s32 = (int32_t)buf[i] >> 11;
+      if (s32 >  32767) s32 =  32767;
+      if (s32 < -32768) s32 = -32768;
+
+      // DC-offset / high-pass filter (~25 Hz cutoff at 16 kHz).
+      // Removes slow MEMS bias drift that muddies the low end.
+      static float hp_in_prev = 0.0f, hp_out_prev = 0.0f;
+      float in  = (float)s32;
+      float out = 0.995f * (hp_out_prev + in - hp_in_prev);
+      hp_in_prev  = in;
+      hp_out_prev = out;
+      int16_t s = (int16_t)out;
+
       sdBuf[sdBufPos++] = (uint8_t)(s & 0xFF);
       sdBuf[sdBufPos++] = (uint8_t)(s >> 8);
 
