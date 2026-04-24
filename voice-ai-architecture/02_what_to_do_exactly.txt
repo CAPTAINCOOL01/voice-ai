@@ -31,11 +31,19 @@ checking with Ramayana first.
     VCC     → VCC  (see note below)
     GND     → GND
 
-    NOTE on SD VCC: most cheap SD breakout modules accept 5V input and have
-    their own 3.3V regulator on board. Check your specific module. If it has
-    an onboard regulator, connect to TP4056 OUT+ (battery voltage ~3.7-4.2V
-    is also acceptable for most modules). If it is a raw card slot with no
-    regulator, use the ESP32's 3.3V output.
+    SD VCC → VIN rail (same rail as ESP32 VIN, fed from SW2 PIN A)
+
+    NOTE: This module is a 5V module with an onboard 3.3V LDO regulator.
+    Connect its VCC to the VIN rail, NOT to the ESP32's 3.3V pin.
+
+    The VIN rail is:
+      - ~5V when USB is plugged in (TP4056 passing USB power through)
+      - ~3.7–4.2V when running on battery only
+
+    The onboard LDO regulator on the SD module requires only ~3.5V minimum
+    input, so it works correctly across the full battery discharge range.
+    Do NOT power the SD module from ESP32's 3.3V pin — it cannot supply
+    enough current for reliable SD card writes.
 
   SW1 — Recording Toggle (SPDT, 3-pin):
     GPIO 8  → COMMON (middle pin)
@@ -73,7 +81,7 @@ Ref   Component                    Value / Spec              Qty   Where to buy
 ────  ───────────────────────────  ────────────────────────  ───   ──────────────────────────
 U1    ESP32-C3 Super Mini          WiFi MCU module           1     Robu.in / AliExpress
 U2    INMP441 module               I2S MEMS mic breakout     1     Robu.in / Amazon
-U3    MicroSD card module          SPI, 3.3V or 5V           1     Robu.in / Amazon
+U3    MicroSD card module          SPI, 5V input (onboard LDO) 1   Robu.in / Amazon
 U4    TP4056 module                USB-C, with protection    1     Robu.in / Amazon
 SW1   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in
 SW2   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in (same part)
@@ -126,7 +134,8 @@ STEP 4 — Battery voltage divider
 
 STEP 5 — MicroSD card module
   n. SD SCK  → GPIO6, SD MOSI → GPIO7, SD MISO → GPIO2, SD CS → GPIO10.
-  o. SD VCC  → 3.3V or 5V (check your module).
+  o. SD VCC  → VIN rail (5V from USB, or battery voltage ~3.7-4.2V on battery).
+              Do NOT use the 3.3V pin — insufficient current for SD writes.
   p. SD GND  → GND.
 
 STEP 6 — INMP441 microphone

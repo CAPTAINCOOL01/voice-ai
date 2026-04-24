@@ -68,7 +68,8 @@ ESP32-C3 Super Mini GPIO assignments:
     GPIO 7  → SD MOSI
     GPIO 2  → SD MISO
     GPIO 10 → SD CS (chip select)
-    5V/3.3V → SD VCC  (check your module — some need 5V, some 3.3V)
+    VIN rail → SD VCC  (module is 5V type with onboard LDO; connect to VIN,
+                        NOT to ESP32 3.3V pin — insufficient current)
     GND     → SD GND
 
   SW1 — Recording Toggle (SPDT, 3-pin):
