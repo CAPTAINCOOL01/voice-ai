@@ -66,6 +66,14 @@ uint16_t sdBufPos = 0;
 float hpInPrev  = 0.0f;
 float hpOutPrev = 0.0f;
 
+// Pre-emphasis filter state — reset at start of each recording
+float peePrev = 0.0f;
+
+// Noise gate: RMS measured over a block, gate closes below this level.
+// Tune this value: raise if background hiss bleeds through, lower if
+// quiet speech is being cut off. 200 works well for typical indoor use.
+#define NOISE_GATE_THRESHOLD 200
+
 /* ─────────────────────────────────────────
    WAV HELPERS
    ───────────────────────────────────────── */
@@ -589,7 +597,8 @@ void loop() {
 
     if (firstRead && br > 0) {
       firstRead = false;
-      hpInPrev = hpOutPrev = 0.0f;  // reset HP filter at start of each recording
+      hpInPrev = hpOutPrev = 0.0f;  // reset HP filter
+      peePrev  = 0.0f;               // reset pre-emphasis filter
       Serial.printf("[I2S]  ✓ Audio flowing — sample[0]=%d\n", buf[0]);
     }
 
@@ -598,20 +607,58 @@ void loop() {
       Serial.printf("[REC]  Recording... %u bytes so far\n", bytesWritten);
     }
 
+    // ── Noise gate: compute RMS over this DMA block ──
+    // If the block is below the noise floor, mute it entirely.
+    // This kills background hiss and ambient noise between words.
+    {
+      int32_t sumSq = 0;
+      size_t  nSamp = br / 4;
+      for (size_t i = 0; i < nSamp; i++) {
+        int32_t v = (int32_t)buf[i] >> 11;
+        sumSq += (v * v) / nSamp;  // scaled to avoid overflow
+      }
+      int32_t rms = (int32_t)sqrtf((float)sumSq);
+      if (rms < NOISE_GATE_THRESHOLD) {
+        // Block is noise — write silence instead of skipping
+        // (skipping would corrupt WAV timing; silence preserves duration)
+        for (size_t i = 0; i < nSamp; i++) {
+          sdBuf[sdBufPos++] = 0;
+          sdBuf[sdBufPos++] = 0;
+          if (sdBufPos >= SD_WRITE_BUF) {
+            wavFile.write(sdBuf, SD_WRITE_BUF);
+            bytesWritten += SD_WRITE_BUF;
+            sdBufPos = 0;
+          }
+        }
+        goto next_block;
+      }
+    }
+
     for (size_t i = 0; i < br / 4; i++) {
-      // INMP441: 24-bit left-justified in 32-bit word.
-      // Shift right 11 (was 14) — less gain, prevents clipping on loud speech.
-      // Clamp to int16 range before casting to avoid hard-clip distortion.
+      // 1. Bit-shift: 24-bit left-justified in 32-bit → 16-bit with gain.
+      //    >>11 = ~32x gain vs unity. Clamp prevents hard clipping.
       int32_t s32 = (int32_t)buf[i] >> 11;
       if (s32 >  32767) s32 =  32767;
       if (s32 < -32768) s32 = -32768;
 
-      // DC-offset / high-pass filter (~25 Hz cutoff at 16 kHz).
-      float in  = (float)s32;
-      float out = 0.995f * (hpOutPrev + in - hpInPrev);
-      hpInPrev  = in;
-      hpOutPrev = out;
-      int16_t s = (int16_t)out;
+      // 2. DC-offset / high-pass filter (~25 Hz cutoff at 16 kHz).
+      //    Removes slow MEMS bias drift.
+      float hpIn  = (float)s32;
+      float hpOut = 0.995f * (hpOutPrev + hpIn - hpInPrev);
+      hpInPrev  = hpIn;
+      hpOutPrev = hpOut;
+
+      // 3. Pre-emphasis filter: y[n] = x[n] - 0.97 * x[n-1]
+      //    Boosts consonants (1-4 kHz) that Whisper relies on for accuracy.
+      //    Coefficient 0.97 is standard for speech processing.
+      float peOut = hpOut - 0.97f * peePrev;
+      peePrev = hpOut;
+
+      // 4. Clamp output back to int16 after filter chain
+      int32_t final = (int32_t)peOut;
+      if (final >  32767) final =  32767;
+      if (final < -32768) final = -32768;
+      int16_t s = (int16_t)final;
 
       sdBuf[sdBufPos++] = (uint8_t)(s & 0xFF);
       sdBuf[sdBufPos++] = (uint8_t)(s >> 8);
@@ -623,5 +670,6 @@ void loop() {
         sdBufPos = 0;
       }
     }
+    next_block:;  // noise gate jumps here to skip the DSP loop for silent blocks
   }
 }
