@@ -56,8 +56,10 @@ checking with Ramayana first.
     SD VCC        → PIN A  (ON — 5V flows to all modules)
     NC            → PIN B  (OFF — leave unconnected)
 
-    NOTE: XL6009E1 IN+ connects to TP4056 OUT+ (always live from battery).
-    The boost converter is ALWAYS running. SW2 only switches its 5V output.
+    NOTE: XL6009E1 IN+ connects to TP4056 B+ (battery positive directly).
+    Do NOT connect XL6009E1 to TP4056 OUT+. Doing so causes the TP4056 to
+    never complete charging (red LED stays on forever). The boost converter is
+    ALWAYS running from the battery. SW2 only switches its 5V output.
 
   LED1 — Green (status/online):
     GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND
@@ -112,17 +114,21 @@ This saves you from re-spinning the board due to a wiring mistake.
 
 STEP 1 — Power rails
   a. Connect TP4056 USB-C to a USB power source.
-  b. TP4056 OUT+ → XL6009E1 IN+, TP4056 OUT- → XL6009E1 IN- (GND).
-  c. BEFORE connecting anything else: power the XL6009E1 alone and use a
-     multimeter to measure its OUT+ pin. Turn the trim pot until you read
-     exactly 5.0V. This step is mandatory — too high will destroy the ESP32.
+  b. TP4056 B+ → XL6009E1 IN+  (battery positive directly to boost converter IN+)
+     TP4056 B- / GND → XL6009E1 IN- (GND)
+     IMPORTANT: Connect to B+, NOT to TP4056 OUT+. If you wire XL6009E1 to
+     OUT+, the TP4056 charging LED will stay red forever and the battery will
+     never reach full charge.
+  c. BEFORE connecting anything else: power the XL6009E1 alone (connect a
+     3.7V source to its IN+ and GND), then measure its OUT+ with a multimeter.
+     Turn the trim pot until you read exactly 5.0V. Too high destroys the ESP32.
   d. XL6009E1 OUT+ → SW2 COMMON, XL6009E1 OUT- → GND rail.
   e. SW2 PIN A → ESP32 VIN + SD VCC. SW2 PIN B → leave unconnected.
   f. Flip SW2 to ON. Measure 5V at ESP32 VIN, and 3.3V at ESP32 3V3.
      If you get anything other than ~5V at VIN, stop and recheck.
 
-  IMPORTANT — battery voltage divider taps from TP4056 OUT+ (before boost):
-  LiPo BAT+ → R3 → GPIO1 → R4 → GND
+  IMPORTANT — battery voltage divider taps from TP4056 B+ (raw battery):
+  TP4056 B+ → R3 → GPIO1 → R4 → GND
   Do NOT tap the divider from XL6009E1 OUT+. That rail is always 5V and
   would tell the firmware the battery is always full.
 
@@ -393,8 +399,9 @@ Go through this before sending Gerbers to the fab house.
   [ ] GPIO 9 is NOT connected to anything
   [ ] GPIO 20 is connected to LED2 (red LED) via R2 (220Ω)
   [ ] SW2 PIN B has a no-connect (X) marker — intentionally unconnected
-  [ ] LiPo BAT+ taps to R3 before SW2 (not after)
-  [ ] TP4056 OUT+ goes to SW2 COMMON, not directly to ESP32 VIN
+  [ ] LiPo BAT+ (TP4056 B+) taps to R3 before SW2 (not from XL6009E1 OUT+)
+  [ ] XL6009E1 IN+ connects to TP4056 B+, NOT to TP4056 OUT+
+  [ ] XL6009E1 OUT+ goes to SW2 COMMON
   [ ] INMP441 L/R pin tied to GND
   [ ] All four capacitor types present (C1 100µF, C2 10µF, C3 100nF, C4 100nF)
 

@@ -1,7 +1,7 @@
 ================================================================================
        VoiceNote AI — PCB Design Brief for Intern
        Prepared by: Ramayana Singh
-       Date: April 2026  |  Version: 1.1 (battery monitoring added)
+       Date: April 2026  |  Version: 1.2 (corrected power architecture)
 ================================================================================
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -37,17 +37,18 @@ SW2 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent) — power ON/OFF
 
 NOTE: Both switches are the SAME part (Si 26 3A 250V SPDT, 3-pin).
       Buy 2 of the same switch — simplifies sourcing and the PCB footprint is identical.
-BAT — 3.7V LiPo battery (recommended: 1000–2000mAh single cell)
-LED1— Green LED (status / device online indicator)
-LED2— Red LED (recording indicator)
+BAT — 3.7V LiPo battery, 2000mAh single cell, JST PH 2.0mm connector
+LED1— Green LED, 3mm or 5mm (status / device online indicator)
+LED2— Red LED, 3mm or 5mm (recording indicator)
 R1  — 220Ω resistor (current limit for LED1)
 R2  — 220Ω resistor (current limit for LED2)
 R3  — 100kΩ resistor (battery voltage divider — top leg, BAT+ side)
 R4  — 100kΩ resistor (battery voltage divider — bottom leg, GND side)
-C1  — 100µF electrolytic capacitor (bulk decoupling on 3.3V rail)
+C1  — 100µF electrolytic capacitor (bulk decoupling on 5V rail near ESP32 VIN)
 C2  — 10µF electrolytic capacitor (decoupling near ESP32 VCC)
 C3  — 100nF ceramic capacitor (high-freq decoupling near ESP32)
 C4  — 100nF ceramic capacitor (decoupling near INMP441 VDD)
+C5  — 100nF ceramic capacitor (GPIO1 ADC filter — optional but recommended)
 J1  — USB-C connector (or use the one already on TP4056 module)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -119,9 +120,9 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
 
   USB-C ──→ TP4056 IN+ / IN-
                │
-            TP4056 B+ / B- ──→ LiPo Battery (always connected)
-               │
-            TP4056 OUT+ / OUT- ──→ XL6009E1 IN+ / IN-  (always on)
+            TP4056 B+ / B- ──┬── LiPo Battery (always connected)
+                             │
+                             └── XL6009E1 IN+ / IN-  (boost draws from B+ directly)
                                        │
                                  XL6009E1 OUT+ (5V) ──→ SW2 COMMON
                                                              │
@@ -131,22 +132,33 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
                                                              │
                                                             GND rail
 
-  Battery voltage divider taps from TP4056 OUT+ (raw battery, before boost):
-    TP4056 OUT+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
+  Battery voltage divider taps from TP4056 B+ (raw battery voltage):
+    TP4056 B+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
   Do NOT tap from XL6009E1 OUT+. That is always 5V and will read as 100% forever.
+  Do NOT tap from TP4056 OUT+. Wire directly to the B+ pad (same node as BAT+).
 
   CRITICAL — set XL6009E1 output to exactly 5.0V before connecting to board:
-    Power XL6009E1 alone, measure OUT+ with multimeter, trim the pot to 5.0V.
+    Power XL6009E1 alone from a 3.7V source, measure OUT+ with multimeter,
+    trim the pot to 5.0V. This step is mandatory — too high destroys the ESP32.
+
+  Why XL6009E1 connects to B+, not TP4056 OUT+:
+  - TP4056 OUT+ is the protected output — it includes a current-sense resistor
+    and protection FETs. When XL6009E1 draws load current through OUT+, it
+    prevents the TP4056 from seeing the battery as fully charged, so the
+    charging LED stays red forever and the battery never fully charges.
+  - Connecting XL6009E1 to B+ (battery directly) bypasses the protection output
+    path. TP4056 can now correctly detect full charge and switch its LED green.
+  - The TP4056 protection IC still protects against over-discharge on the B- path.
 
   Why this order:
-  - TP4056 is always powered from USB regardless of SW2 position
-  - XL6009E1 is always on — provides stable 5V immediately when SW2 turns on
+  - TP4056 charges battery from USB regardless of SW2 position
+  - XL6009E1 is always on (powered from B+) — stable 5V before SW2 turns on
   - SW2 only cuts the 5V rail to ESP32 and peripherals
   - Battery charges whether device is ON or OFF as long as USB is plugged in
 
   TP4056 LED indicators:
   - Red LED on module = charging
-  - Blue/Green LED on module = fully charged
+  - Blue/Green LED on module = fully charged (only works correctly with B+ tap)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 5 — PCB DESIGN REQUIREMENTS

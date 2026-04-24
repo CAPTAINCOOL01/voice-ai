@@ -86,8 +86,11 @@ Every component and why it exists:
     Without this, the battery alone cannot guarantee 5V to the SD module
     or stable ESP32 operation as the battery discharges. The XL6009E1 module
     has a trim pot — set output to exactly 5.0V before wiring to the device.
-    IMPORTANT: the boost converter runs always-on from the battery so that
-    its output is stable before SW2 passes it to the ESP32.
+    IMPORTANT: connect XL6009E1 IN+ to TP4056 B+ (battery positive directly),
+    NOT to TP4056 OUT+. If wired to OUT+, the TP4056 never completes its charge
+    cycle and the red LED stays on permanently. The boost converter runs
+    always-on from the battery so its output is stable before SW2 passes it
+    to the ESP32.
 
   SW2 — Power Switch (3-pin SPDT)
     Cuts power to the ESP32 and all modules. TP4056 and XL6009E1 stay
@@ -143,25 +146,33 @@ SECTION 5 — POWER ARCHITECTURE
 
 USB-C ──→ TP4056 IN+/IN-              (charging input, always live)
                │
-            TP4056 B+/B- ──→ LiPo Battery        (always connected)
-               │
-            TP4056 OUT+/OUT- ──→ XL6009E1 IN+/IN- (boost converter, always on)
-                                       │
-                                 XL6009E1 OUT+ ──→ SW2 COMMON (5V regulated)
-                                                       │
-                                               SW2 PIN A ──→ ESP32 VIN
-                                                           + SD VCC
-                                               SW2 PIN B ──→ NC (device OFF)
+            TP4056 B+/B- ──┬── LiPo Battery        (always connected)
+                           │
+                           └── XL6009E1 IN+/IN-     (boost converter, always on,
+                                   │                  draws from battery directly)
+                             XL6009E1 OUT+ ──→ SW2 COMMON (5V regulated)
+                                                     │
+                                             SW2 PIN A ──→ ESP32 VIN
+                                                         + SD VCC
+                                             SW2 PIN B ──→ NC (device OFF)
 
-  Battery voltage divider taps from TP4056 OUT+ (raw battery voltage),
-  NOT from XL6009E1 OUT+ — the ADC must read the actual battery level,
-  not the boosted fixed 5V rail.
+  Battery voltage divider taps from TP4056 B+ (raw battery voltage):
+    TP4056 B+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
+  Do NOT tap from XL6009E1 OUT+ — that is always 5V regardless of battery level.
+  Do NOT tap from TP4056 OUT+ — connect the divider wire directly to the B+ pad.
+
+  Why XL6009E1 connects to B+, not TP4056 OUT+:
+  If XL6009E1 draws load current through TP4056 OUT+, the TP4056 protection
+  circuit never sees the battery as fully charged. The charging LED stays red
+  permanently and the battery is chronically undercharged. Wiring XL6009E1
+  to B+ directly fixes this — the TP4056 charges normally and its LED turns
+  blue/green when the battery is full.
 
 Key rules:
   - TP4056 and XL6009E1 are always-on from the battery.
   - SW2 only cuts the 5V rail to the ESP32 and peripherals.
   - Battery charges whether device is ON or OFF as long as USB is plugged in.
-  - XL6009E1 output MUST be trimmed to 5.0V before first use.
+  - XL6009E1 output MUST be trimmed to exactly 5.0V before first use.
 
 The ESP32's onboard 3.3V LDO steps down 5V → 3.3V for the MCU and INMP441.
 The SD module receives the full 5V rail directly (it has its own 3.3V regulator).
