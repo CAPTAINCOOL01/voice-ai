@@ -51,11 +51,13 @@ checking with Ramayana first.
     GND     → PIN B  (flip this way = STOP recording)
 
   SW2 — Power Switch (SPDT, 3-pin):
-    TP4056 OUT+  → COMMON (middle pin)
+    XL6009E1 OUT+ (5V regulated) → COMMON (middle pin)
     ESP32 VIN +
-    SD VCC +
-    INMP441 VDD  → PIN A  (ON — power flows to all modules)
-    NC           → PIN B  (OFF — leave unconnected)
+    SD VCC        → PIN A  (ON — 5V flows to all modules)
+    NC            → PIN B  (OFF — leave unconnected)
+
+    NOTE: XL6009E1 IN+ connects to TP4056 OUT+ (always live from battery).
+    The boost converter is ALWAYS running. SW2 only switches its 5V output.
 
   LED1 — Green (status/online):
     GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND
@@ -83,6 +85,7 @@ U1    ESP32-C3 Super Mini          WiFi MCU module           1     Robu.in / Ali
 U2    INMP441 module               I2S MEMS mic breakout     1     Robu.in / Amazon
 U3    MicroSD card module          SPI, 5V input (onboard LDO) 1   Robu.in / Amazon
 U4    TP4056 module                USB-C, with protection    1     Robu.in / Amazon
+U5    XL6009E1 boost module        3.7V→5V DC-DC boost       1     Robu.in / Amazon
 SW1   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in
 SW2   SPDT toggle switch           Si 26 3A 250V, 3-pin      1     Amazon / Robu.in (same part)
 BAT   LiPo battery                 3.7V, 1000–2000 mAh      1     Robu.in / Amazon
@@ -109,10 +112,19 @@ This saves you from re-spinning the board due to a wiring mistake.
 
 STEP 1 — Power rails
   a. Connect TP4056 USB-C to a USB power source.
-  b. TP4056 OUT+ → SW2 COMMON, TP4056 OUT- → GND rail.
-  c. SW2 PIN A → ESP32 VIN, SW2 PIN B → leave unconnected.
-  d. Flip SW2 to ON. Measure 3.3V between ESP32 3V3 pin and GND.
-     If you get 0V or 5V, stop and recheck wiring before proceeding.
+  b. TP4056 OUT+ → XL6009E1 IN+, TP4056 OUT- → XL6009E1 IN- (GND).
+  c. BEFORE connecting anything else: power the XL6009E1 alone and use a
+     multimeter to measure its OUT+ pin. Turn the trim pot until you read
+     exactly 5.0V. This step is mandatory — too high will destroy the ESP32.
+  d. XL6009E1 OUT+ → SW2 COMMON, XL6009E1 OUT- → GND rail.
+  e. SW2 PIN A → ESP32 VIN + SD VCC. SW2 PIN B → leave unconnected.
+  f. Flip SW2 to ON. Measure 5V at ESP32 VIN, and 3.3V at ESP32 3V3.
+     If you get anything other than ~5V at VIN, stop and recheck.
+
+  IMPORTANT — battery voltage divider taps from TP4056 OUT+ (before boost):
+  LiPo BAT+ → R3 → GPIO1 → R4 → GND
+  Do NOT tap the divider from XL6009E1 OUT+. That rail is always 5V and
+  would tell the firmware the battery is always full.
 
 STEP 2 — Recording switch (SW1)
   e. SW1 COMMON → GPIO8.

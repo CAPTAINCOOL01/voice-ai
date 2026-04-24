@@ -81,9 +81,18 @@ Every component and why it exists:
     The record control. Flip one way = start recording. Flip other = stop.
     The firmware reads GPIO8: HIGH = record, LOW = stop.
 
+  XL6009E1 (Boost Converter Module)
+    Steps up the battery voltage (3.0–4.2V) to a regulated 5V output.
+    Without this, the battery alone cannot guarantee 5V to the SD module
+    or stable ESP32 operation as the battery discharges. The XL6009E1 module
+    has a trim pot — set output to exactly 5.0V before wiring to the device.
+    IMPORTANT: the boost converter runs always-on from the battery so that
+    its output is stable before SW2 passes it to the ESP32.
+
   SW2 — Power Switch (3-pin SPDT)
-    Cuts power to the ESP32 and all modules. TP4056 stays powered so the
-    battery still charges even with SW2 off. Same physical switch as SW1.
+    Cuts power to the ESP32 and all modules. TP4056 and XL6009E1 stay
+    powered at all times so the battery still charges when the device is
+    off. Same physical switch as SW1.
 
   LED1 — Green LED
     Status indicator. On = device is online and WiFi connected.
@@ -132,22 +141,30 @@ BATTERY PATH:
 SECTION 5 — POWER ARCHITECTURE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-USB-C ──→ TP4056 IN+/IN-        (charging input, always live)
+USB-C ──→ TP4056 IN+/IN-              (charging input, always live)
                │
-            TP4056 B+/B- ──→ LiPo Battery    (always connected)
+            TP4056 B+/B- ──→ LiPo Battery        (always connected)
                │
-            TP4056 OUT+/OUT- ──→ SW2 COMMON  (middle pin of power switch)
-                                      │
-                              SW2 PIN A ──→ ESP32 VIN + SD + INMP441
-                              SW2 PIN B ──→ NC (device OFF)
+            TP4056 OUT+/OUT- ──→ XL6009E1 IN+/IN- (boost converter, always on)
+                                       │
+                                 XL6009E1 OUT+ ──→ SW2 COMMON (5V regulated)
+                                                       │
+                                               SW2 PIN A ──→ ESP32 VIN
+                                                           + SD VCC
+                                               SW2 PIN B ──→ NC (device OFF)
 
-Key rule: the TP4056 is ALWAYS powered from USB regardless of SW2 position.
-The battery charges whether the device is on or off.
+  Battery voltage divider taps from TP4056 OUT+ (raw battery voltage),
+  NOT from XL6009E1 OUT+ — the ADC must read the actual battery level,
+  not the boosted fixed 5V rail.
 
-The ESP32's onboard 3.3V LDO steps down the battery voltage (3.0–4.2V) to 3.3V
-for the MCU, mic, and most peripherals. The SD card may need 5V — check your
-specific module's datasheet (most breakout modules have their own 3.3V regulator
-and accept 5V input).
+Key rules:
+  - TP4056 and XL6009E1 are always-on from the battery.
+  - SW2 only cuts the 5V rail to the ESP32 and peripherals.
+  - Battery charges whether device is ON or OFF as long as USB is plugged in.
+  - XL6009E1 output MUST be trimmed to 5.0V before first use.
+
+The ESP32's onboard 3.3V LDO steps down 5V → 3.3V for the MCU and INMP441.
+The SD module receives the full 5V rail directly (it has its own 3.3V regulator).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 6 — THE SOFTWARE STACK

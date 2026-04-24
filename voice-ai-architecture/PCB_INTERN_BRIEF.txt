@@ -29,8 +29,9 @@ SECTION 2 — COMPLETE COMPONENT LIST
 
 U1  — ESP32-C3 Super Mini (main microcontroller, WiFi built-in)
 U2  — INMP441 (I2S digital MEMS microphone module)
-U3  — MicroSD card module (SPI interface)
+U3  — MicroSD card module (SPI interface, 5V input with onboard LDO)
 U4  — TP4056 (LiPo battery charger module with protection, USB-C input)
+U5  — XL6009E1 (DC-DC boost converter module, 3.7V → 5V regulated output)
 SW1 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent) — recording control
 SW2 — SPDT toggle switch, 3-pin (Si 26 3A 250V or equivalent) — power ON/OFF
 
@@ -120,17 +121,28 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
                │
             TP4056 B+ / B- ──→ LiPo Battery (always connected)
                │
-            TP4056 OUT+ / OUT- ──→ SW2 COMMON (middle pin)
+            TP4056 OUT+ / OUT- ──→ XL6009E1 IN+ / IN-  (always on)
                                        │
-                               SW2 PIN A ──→ ESP32 VIN + all modules
-                               SW2 PIN B ──→ NC (not connected)
-                                       │
-                                      GND rail
+                                 XL6009E1 OUT+ (5V) ──→ SW2 COMMON
+                                                             │
+                                                     SW2 PIN A ──→ ESP32 VIN
+                                                                 + SD VCC
+                                                     SW2 PIN B ──→ NC
+                                                             │
+                                                            GND rail
+
+  Battery voltage divider taps from TP4056 OUT+ (raw battery, before boost):
+    TP4056 OUT+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
+  Do NOT tap from XL6009E1 OUT+. That is always 5V and will read as 100% forever.
+
+  CRITICAL — set XL6009E1 output to exactly 5.0V before connecting to board:
+    Power XL6009E1 alone, measure OUT+ with multimeter, trim the pot to 5.0V.
 
   Why this order:
   - TP4056 is always powered from USB regardless of SW2 position
-  - SW2 only cuts power to ESP32 and peripherals
-  - Battery charges whether the device is ON or OFF as long as USB is plugged in
+  - XL6009E1 is always on — provides stable 5V immediately when SW2 turns on
+  - SW2 only cuts the 5V rail to ESP32 and peripherals
+  - Battery charges whether device is ON or OFF as long as USB is plugged in
 
   TP4056 LED indicators:
   - Red LED on module = charging
