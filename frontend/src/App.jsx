@@ -1190,7 +1190,32 @@ function Skeleton() {
 const PROJECT_COLORS = ["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444","#ec4899","#06b6d4","#f97316"];
 const PROJECT_EMOJIS = ["📁","🚀","💡","🎯","🔥","📊","🛠️","🎨","📝","⚡","🌟","💼"];
 
-function ProjectsSection({ API, authFetch, recordings, externalProjects, onProjectsChange, onBack }) {
+// Indian national & corporate holidays (year-agnostic, MM-DD format + optional fixed year)
+const INDIA_HOLIDAYS = {
+  "01-26": "Republic Day",
+  "08-15": "Independence Day",
+  "10-02": "Gandhi Jayanti",
+  "12-25": "Christmas",
+  "01-01": "New Year",
+  "05-01": "Labour Day",
+  "11-14": "Children's Day",
+};
+// Diwali & Holi vary by year — add 2025/2026 dates
+const INDIA_VARIABLE_HOLIDAYS = {
+  "2025-10-20": "Diwali",
+  "2025-03-14": "Holi",
+  "2026-11-08": "Diwali",
+  "2026-03-03": "Holi",
+  "2025-04-14": "Ambedkar Jayanti",
+  "2026-04-14": "Ambedkar Jayanti",
+  "2025-04-18": "Good Friday",
+  "2026-04-03": "Good Friday",
+  "2025-10-02": "Gandhi Jayanti",
+  "2025-11-05": "Guru Nanak Jayanti",
+  "2026-10-22": "Guru Nanak Jayanti",
+};
+
+function ProjectsSection({ API, authFetch, recordings: propRecordings, externalProjects, onProjectsChange, onBack }) {
   const [_projects, _setProjects]     = useState([]);
   const projects = externalProjects || _projects;
   const setProjects = (v) => { _setProjects(v); onProjectsChange && onProjectsChange(v); };
@@ -1205,6 +1230,10 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
   const [assignModal, setAssignModal] = useState(null); // { projectId, task }
   const [taskDueDate, setTaskDueDate] = useState("");
   const [expandedProject, setExpandedProject] = useState(null);
+  const [subPage, setSubPage]         = useState("tasks"); // "tasks" | "calendar"
+  const [localRecordings, setLocalRecordings] = useState(propRecordings || []);
+
+  useEffect(() => { setLocalRecordings(propRecordings || []); }, [propRecordings]);
 
   const fetchProjectsLocal = useCallback(async () => {
     try { const r = await authFetch(`${API}/projects`); const data = await r.json(); setProjects(data); }
@@ -1255,14 +1284,33 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
     setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
   };
 
-  const assignRecordingTask = async (projectId, taskText, dueDate, recordingId) => {
+  const assignRecordingTask = async (projectId, taskText, dueDate, recordingId, actionIndex) => {
     const r = await authFetch(`${API}/projects/${projectId}/tasks`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ text:taskText, dueDate:dueDate||undefined, recordingId }),
     });
     const updated = await r.json();
     setProjects(prev => prev.map(p => p._id === projectId ? updated : p));
+    // Remove this item from localRecordings
+    if (recordingId !== undefined && actionIndex !== undefined) {
+      setLocalRecordings(prev => prev.map(rec =>
+        rec._id === recordingId
+          ? { ...rec, actionItems: rec.actionItems.filter((_,i) => i !== actionIndex) }
+          : rec
+      ));
+    }
     setAssignModal(null);
+  };
+
+  const deleteActionItem = async (recordingId, actionIndex) => {
+    try {
+      await authFetch(`${API}/recordings/${recordingId}/action-items/${actionIndex}`, { method:"DELETE" });
+      setLocalRecordings(prev => prev.map(rec =>
+        rec._id === recordingId
+          ? { ...rec, actionItems: rec.actionItems.filter((_,i) => i !== actionIndex) }
+          : rec
+      ));
+    } catch (err) { console.error("Failed to delete action item", err); }
   };
 
   // Calendar helpers
@@ -1303,7 +1351,20 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
             🗂️ Projects
           </h2>
         </div>
-        <button onClick={() => setShowNewProject(true)} style={{
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {/* Sub-page tabs */}
+          {["tasks","calendar"].map(tab=>(
+            <button key={tab} onClick={()=>setSubPage(tab)} style={{
+              padding:"7px 16px", borderRadius:10, fontSize:12, fontWeight:600, cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+              background: subPage===tab ? "rgba(245,158,11,0.12)" : "transparent",
+              border: `1px solid ${subPage===tab ? "rgba(245,158,11,0.4)" : "#27272a"}`,
+              color: subPage===tab ? "#f59e0b" : "#71717a",
+            }}>
+              {tab === "tasks" ? "📋 Tasks" : "📅 Calendar"}
+            </button>
+          ))}
+          <button onClick={() => setShowNewProject(true)} style={{
           display:"flex", alignItems:"center", gap:6, padding:"9px 18px", borderRadius:12,
           background:"linear-gradient(135deg,#f59e0b,#fb923c)", border:"none", cursor:"pointer",
           color:"white", fontWeight:700, fontSize:13, fontFamily:"'Sora',sans-serif",
@@ -1313,6 +1374,7 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
         onMouseLeave={e=>e.currentTarget.style.filter=""}>
           + New Project
         </button>
+        </div>{/* end right-side controls */}
       </div>
 
       {/* New project modal */}
@@ -1394,7 +1456,7 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
             <p style={{ fontSize:11, color:"#52525b", margin:"0 0 10px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Select Project</p>
             <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:200, overflowY:"auto" }}>
               {projects.map(p=>(
-                <button key={p._id} onClick={()=>assignRecordingTask(p._id, assignModal.task, taskDueDate, assignModal.recordingId)} style={{
+                <button key={p._id} onClick={()=>assignRecordingTask(p._id, assignModal.task, taskDueDate, assignModal.recordingId, assignModal.actionIndex)} style={{
                   display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderRadius:12,
                   border:"1px solid #27272a", background:"#111", cursor:"pointer", transition:"all 0.15s",
                   textAlign:"left",
@@ -1420,14 +1482,17 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
 
       {loading && <p style={{ color:"#52525b", fontSize:13 }}>Loading projects…</p>}
 
+      {/* Sub-page: Tasks */}
+      {subPage === "tasks" && <>
+
       {/* Project cards */}
       {!loading && projects.length > 0 && (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14, marginBottom:32 }}>
+        <div style={{ display:"grid", gridTemplateColumns: projects.length === 1 ? "1fr" : "repeat(auto-fill,minmax(280px,1fr))", gap:14, marginBottom:32 }}>
           {projects.map(p => {
             const done  = p.tasks.filter(t=>t.done).length;
             const total = p.tasks.length;
             const pct   = total > 0 ? Math.round(done/total*100) : 0;
-            const isExp = expandedProject === p._id;
+            const isExp = projects.length === 1 ? true : expandedProject === p._id;
             return (
               <div key={p._id} style={{
                 background:"#111113", border:`1px solid ${isExp?p.color+"55":"#27272a"}`,
@@ -1536,7 +1601,54 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
         </div>
       )}
 
-      {/* Calendar */}
+      {/* Unassigned tasks from recordings (Tasks sub-page) */}
+      {localRecordings.some(r=>r.actionItems?.length>0) && (
+        <div style={{ marginTop:24 }}>
+          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:"#a1a1aa", marginBottom:14 }}>
+            📋 Unassigned tasks from recordings
+          </p>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {localRecordings.filter(r=>r.actionItems?.length>0).map(r=>(
+              <div key={r._id} style={{ background:"#111113", border:"1px solid #1e1e21", borderRadius:16, padding:"16px 18px" }}>
+                <p style={{ margin:"0 0 12px", fontSize:13, fontWeight:700, color:"#71717a" }}>
+                  🎙️ {r.title || "Untitled"}
+                </p>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {r.actionItems.map((item,i)=>(
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:"#0d0d0f",
+                      border:"1px solid #1e1e21", borderRadius:12, padding:"12px 14px" }}>
+                      <span style={{ fontSize:13, color:"#e4e4e7", flex:1, lineHeight:1.5 }}>{item}</span>
+                      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                        <button onClick={()=>{ setAssignModal({ task:item, recordingId:r._id, actionIndex:i }); setTaskDueDate(""); }} style={{
+                          padding:"6px 14px", borderRadius:8, border:"1px solid rgba(245,158,11,.4)",
+                          background:"rgba(245,158,11,.08)", color:"#f59e0b", fontSize:12, cursor:"pointer",
+                          fontWeight:700, transition:"all 0.15s",
+                        }}
+                        onMouseEnter={e=>{ e.currentTarget.style.background="rgba(245,158,11,.18)"; }}
+                        onMouseLeave={e=>{ e.currentTarget.style.background="rgba(245,158,11,.08)"; }}>
+                          + Assign
+                        </button>
+                        <button onClick={()=>deleteActionItem(r._id, i)} style={{
+                          padding:"6px 10px", borderRadius:8, border:"1px solid #27272a",
+                          background:"transparent", color:"#52525b", fontSize:12, cursor:"pointer",
+                          transition:"all 0.15s",
+                        }}
+                        onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f87171"; e.currentTarget.style.color="#f87171"; }}
+                        onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#52525b"; }}
+                        title="Delete task">✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      </>}
+
+      {subPage === "calendar" && <>
       <div style={{ background:"#111113", border:"1px solid #27272a", borderRadius:20, overflow:"hidden" }}>
         {/* Calendar header */}
         <div style={{ padding:"16px 20px", borderBottom:"1px solid #1e1e21", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1652,39 +1764,8 @@ function ProjectsSection({ API, authFetch, recordings, externalProjects, onProje
         </div>
       </div>
 
-      {/* Assign from recordings */}
-      {recordings.some(r=>r.actionItems?.length>0) && (
-        <div style={{ marginTop:24 }}>
-          <p style={{ fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:14, color:"#a1a1aa", marginBottom:14 }}>
-            📋 Assign tasks from your recordings
-          </p>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {recordings.filter(r=>r.actionItems?.length>0).slice(0,5).map(r=>(
-              <div key={r._id} style={{ background:"#111113", border:"1px solid #1e1e21", borderRadius:14, padding:"12px 16px" }}>
-                <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:600, color:"#71717a" }}>
-                  🎙️ {r.title || "Untitled"} · {r.actionItems.length} task{r.actionItems.length>1?"s":""}
-                </p>
-                <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-                  {r.actionItems.map((item,i)=>(
-                    <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                      <span style={{ fontSize:12, color:"#a1a1aa", flex:1 }}>• {item}</span>
-                      <button onClick={()=>{ setAssignModal({ task:item, recordingId:r._id }); setTaskDueDate(""); }} style={{
-                        padding:"4px 10px", borderRadius:8, border:"1px solid #27272a", background:"transparent",
-                        color:"#71717a", fontSize:11, cursor:"pointer", flexShrink:0, transition:"all 0.15s",
-                        fontWeight:600,
-                      }}
-                      onMouseEnter={e=>{ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}
-                      onMouseLeave={e=>{ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}>
-                        + Assign
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      </>}
+
     </section>
   );
 }

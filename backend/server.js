@@ -209,7 +209,7 @@ async function generateNotes(text) {
 
 "tags": array of 4-6 keyword strings
 
-"actionItems": array of up to 8 plain text actionable task strings (no markdown)
+"actionItems": array of concrete, actionable to-do items that someone must physically do (e.g. "Send email to John", "Book meeting room", "Review PR #42"). Include ONLY items that require an action — exclude observations, facts, summaries, preferences, or general notes. Max 6 items, plain text, no markdown, no bullet prefix.
 
 Transcript: ${text}` },
     ],
@@ -709,6 +709,20 @@ app.patch("/recordings/:id", auth, async (req, res) => {
       { _id: req.params.id, userId: req.user._id }, { title, summary, tags, actionItems }, { new: true }
     );
     if (!recording) return res.status(404).json({ error: "Not found" });
+    res.json(recording);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /recordings/:id/action-items/:index ───────────
+app.delete("/recordings/:id/action-items/:index", auth, async (req, res) => {
+  try {
+    const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!recording) return res.status(404).json({ error: "Not found" });
+    const idx = parseInt(req.params.index, 10);
+    if (isNaN(idx) || idx < 0 || idx >= recording.actionItems.length)
+      return res.status(400).json({ error: "Invalid index" });
+    recording.actionItems.splice(idx, 1);
+    await recording.save();
     res.json(recording);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
