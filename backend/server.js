@@ -125,6 +125,7 @@ const upload = multer({
     filename: (_, file, cb) =>
       cb(null, `${Date.now()}${path.extname(file.originalname) || ".webm"}`),
   }),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
 });
 
 // ── R2 helpers ────────────────────────────────────────────

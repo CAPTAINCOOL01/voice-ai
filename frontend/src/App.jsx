@@ -2011,6 +2011,11 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
+    const MAX_MB = 24;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setFileUploadError(`File is too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum is ${MAX_MB} MB. Compress the audio or trim the recording before uploading.`);
+      return;
+    }
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false); setFileUploadStage("transcribing");
     const stageTimer = setTimeout(() => setFileUploadStage("analysing"), 15000);
     try {
