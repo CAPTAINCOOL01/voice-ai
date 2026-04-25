@@ -2014,7 +2014,7 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB per chunk — safely under Render's 25 MB proxy limit
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB per chunk — well under Render's 25 MB proxy limit
     const useChunked = file.size > CHUNK_SIZE;
 
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
