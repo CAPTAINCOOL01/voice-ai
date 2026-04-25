@@ -2082,13 +2082,22 @@ export default function App() {
     try {
       let fileToUpload = file;
 
-      // Compress large files to WebM/Opus in the browser before uploading
+      // Compress large files before uploading
       if (NEEDS_COMPRESS) {
         setFileUploadStage("compressing");
         setFileUploadProgress(10);
         setFileUploadETA("compressing audio…");
-        fileToUpload = await compressAudio(file);
-        console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB`);
+        try {
+          fileToUpload = await compressAudio(file);
+          console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB`);
+        } catch (compErr) {
+          console.warn("Compression failed, uploading original:", compErr.message);
+          // If the file is under 25MB we can still try uploading the original
+          if (file.size > 25 * 1024 * 1024) {
+            throw new Error("Could not compress this audio format. Please record shorter clips (under ~13 minutes).");
+          }
+          fileToUpload = file; // try original as-is
+        }
       }
 
       setFileUploadStage("uploading");
