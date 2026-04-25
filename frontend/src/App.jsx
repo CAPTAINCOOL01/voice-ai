@@ -2114,11 +2114,14 @@ export default function App() {
       // Step 4: tell backend to process the file from R2
       setFileUploadStage("processing");
       setFileUploadProgress(65);
-      let countdown = 45;
+      let elapsed = 0;
       const processingTimer = setInterval(() => {
-        countdown = Math.max(0, countdown - 1);
-        setFileUploadETA(fmtETA(countdown));
-        setFileUploadProgress(prev => Math.min(94, prev + 0.6));
+        elapsed += 1;
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        setFileUploadETA(`Processing… ${timeStr}`);
+        setFileUploadProgress(prev => Math.min(94, prev + 0.15));
       }, 1000);
 
       const processRes = await authFetch(`${API}/upload/process`, {
