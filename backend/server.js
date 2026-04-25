@@ -985,7 +985,10 @@ app.post("/chat/stream", auth, async (req, res) => {
 
 // ── Fallback → React app ──────────────────────────────────
 if (fs.existsSync(DIST)) {
-  app.use((_, res) => res.sendFile(path.join(DIST, "index.html")));
+  app.use((_, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.join(DIST, "index.html"));
+  });
 }
 
 // ── HTTP + WebSocket server ───────────────────────────────
