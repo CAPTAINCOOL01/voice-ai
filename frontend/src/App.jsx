@@ -2009,14 +2009,59 @@ export default function App() {
     finally { setUploading(false); setUploadStage(""); }
   };
 
+  // Compress any audio file to WebM/Opus using native browser APIs — no library needed
+  const compressAudio = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = async (e) => {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const decoded  = await audioCtx.decodeAudioData(e.target.result);
+
+        // Render to offline context at 16kHz mono (perfect for speech / Whisper)
+        const sampleRate  = 16000;
+        const offlineCtx  = new OfflineAudioContext(1, decoded.duration * sampleRate, sampleRate);
+        const src         = offlineCtx.createBufferSource();
+        src.buffer        = decoded;
+        src.connect(offlineCtx.destination);
+        src.start();
+        const rendered = await offlineCtx.startRendering();
+
+        // Encode to WebM/Opus via MediaRecorder
+        const dest    = audioCtx.createMediaStreamDestination();
+        const encCtx  = new AudioContext({ sampleRate });
+        const buf     = encCtx.createBuffer(1, rendered.length, sampleRate);
+        buf.copyToChannel(rendered.getChannelData(0), 0);
+        const bufSrc  = encCtx.createBufferSource();
+        bufSrc.buffer = buf;
+        bufSrc.connect(dest);
+
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus" : "audio/webm";
+        const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 64000 });
+        const chunks   = [];
+        recorder.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType });
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".webm"), { type: mimeType }));
+        };
+        recorder.onerror = reject;
+        recorder.start();
+        bufSrc.start();
+        bufSrc.onended = () => recorder.stop();
+        encCtx.resume();
+      } catch (err) { reject(err); }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
   const uploadFile = async (file) => {
     if (!file) return;
     const allowed = ["audio/wav","audio/mpeg","audio/mp4","audio/x-m4a","audio/ogg","audio/webm","audio/flac","video/mp4"];
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-    const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB per chunk — well under Render's 25 MB proxy limit
-    const useChunked = file.size > CHUNK_SIZE;
+    const NEEDS_COMPRESS = file.size > 20 * 1024 * 1024; // compress anything over 20 MB
 
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
     setFileUploadETA(null); setFileUploadProgress(0);
@@ -2033,74 +2078,47 @@ export default function App() {
     };
 
     try {
-      if (!useChunked) {
-        setFileUploadStage("uploading");
-        setFileUploadProgress(20);
-        setFileUploadETA("estimating…");
-        const uploadStart = Date.now();
-        const form = new FormData();
-        form.append("audio", file, file.name);
-        const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-        if (res.status === 413) throw new Error("File too large for server (max 10 MB per request).");
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Upload failed");
-        setFileUploadProgress(100);
-        setFileUploadETA(null);
-      } else {
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const sessionId   = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const chunkTimes  = [];
+      let fileToUpload = file;
 
-        for (let i = 0; i < totalChunks; i++) {
-          setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
-          setFileUploadProgress(Math.round((i / totalChunks) * 60));
-
-          // ETA during upload: use average time per chunk × remaining chunks + ~30s for AI processing
-          if (chunkTimes.length > 0) {
-            const avgChunkMs   = chunkTimes.reduce((a, b) => a + b, 0) / chunkTimes.length;
-            const chunksLeft   = totalChunks - i;
-            const uploadETA    = Math.round((avgChunkMs * chunksLeft) / 1000);
-            const processingETA = 30; // whisper + gpt estimate
-            setFileUploadETA(fmtETA(uploadETA + processingETA));
-          } else {
-            setFileUploadETA("estimating…");
-          }
-
-          const chunkStart = Date.now();
-          const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          const form  = new FormData();
-          form.append("chunk", chunk, file.name);
-          form.append("sessionId",   sessionId);
-          form.append("chunkIndex",  String(i));
-          form.append("totalChunks", String(totalChunks));
-          const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(`Part ${i + 1} failed (HTTP ${res.status}): ${data.error || "server error"}`);
-          chunkTimes.push(Date.now() - chunkStart);
-          setFileUploadProgress(Math.round(((i + 1) / totalChunks) * 60));
+      // Compress large files to WebM/Opus in the browser before uploading
+      if (NEEDS_COMPRESS) {
+        setFileUploadStage("compressing");
+        setFileUploadProgress(10);
+        setFileUploadETA("compressing audio…");
+        try {
+          fileToUpload = await compressAudio(file);
+          const savedMB = ((file.size - fileToUpload.size) / 1024 / 1024).toFixed(1);
+          console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB (saved ${savedMB}MB)`);
+        } catch (compErr) {
+          console.warn("Compression failed, uploading original:", compErr);
+          fileToUpload = file; // fall back to original
         }
-
-        // Processing phase — count down from 30s estimate
-        setFileUploadStage("processing");
-        setFileUploadProgress(70);
-        let processingCountdown = 30;
-        const processingTimer = setInterval(() => {
-          processingCountdown = Math.max(0, processingCountdown - 1);
-          setFileUploadETA(fmtETA(processingCountdown));
-          setFileUploadProgress(prev => Math.min(94, prev + 0.8));
-        }, 1000);
-
-        const res  = await authFetch(`${API}/upload/finalize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
-        });
-        clearInterval(processingTimer);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Finalize failed");
-        setFileUploadProgress(100);
-        setFileUploadETA(null);
       }
+
+      setFileUploadStage("uploading");
+      setFileUploadProgress(30);
+      setFileUploadETA("estimating…");
+
+      // Single upload — compression ensures file is well under 25MB
+      const form = new FormData();
+      form.append("audio", fileToUpload, fileToUpload.name);
+      const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
+      if (res.status === 413) throw new Error("File still too large after compression. Try a shorter recording.");
+      setFileUploadProgress(70);
+
+      // Processing phase countdown
+      let countdown = 30;
+      const processingTimer = setInterval(() => {
+        countdown = Math.max(0, countdown - 1);
+        setFileUploadETA(fmtETA(countdown));
+        setFileUploadProgress(prev => Math.min(94, prev + 0.8));
+      }, 1000);
+
+      const data = await res.json();
+      clearInterval(processingTimer);
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setFileUploadProgress(100);
+      setFileUploadETA(null);
 
       setFileUploadDone(true);
       await fetchRecordings();
@@ -2567,8 +2585,8 @@ export default function App() {
                       animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
                   </div>
                   <span style={{ fontSize:12, color:"#a1a1aa" }}>
-                    {fileUploadStage==="processing" ? "Transcribing & analysing…"
-                      : fileUploadStage.startsWith("uploading part") ? fileUploadStage + "…"
+                    {fileUploadStage==="compressing" ? "Compressing audio…"
+                      : fileUploadStage==="processing" ? "Transcribing & analysing…"
                       : "Uploading…"}
                   </span>
                 </div>
