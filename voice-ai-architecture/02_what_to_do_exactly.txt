@@ -150,13 +150,49 @@ STEP 4 — Battery voltage divider
   m. Optional: 100nF cap from GPIO1 to GND right at the junction.
   VERIFY: with a 3.7V battery, measure ~1.85V at GPIO1 with a multimeter.
 
-STEP 5 — MicroSD card module
+STEP 5 — Decoupling capacitors (C1, C2, C3, C4, C5)
+  Place these BEFORE powering on. They filter voltage spikes and keep the
+  power rails clean. Without them the ESP32 can reset randomly during WiFi
+  transmit or SD card writes.
+
+  C1 — 100µF electrolytic (bulk decoupling on VIN rail):
+    +leg (longer) → VIN rail (5V)
+    -leg (shorter, marked with stripe) → GND
+    Place as close as possible to ESP32 VIN pin.
+    IMPORTANT: electrolytic caps are POLARISED — wrong way = damaged or explodes.
+
+  C2 — 10µF electrolytic (mid-frequency decoupling on VIN rail):
+    +leg → VIN rail (5V)
+    -leg → GND
+    Place right next to C1, also near ESP32 VIN.
+    C1 and C2 work together in parallel — C1 handles slow big spikes,
+    C2 handles faster ones.
+
+  C3 — 100nF ceramic (high-frequency decoupling on 3.3V rail):
+    One leg → ESP32 3V3 pin (3.3V output of ESP32's onboard LDO)
+    Other leg → GND
+    Place as close as possible to the ESP32 3V3 pin.
+    Ceramic caps have NO polarity — either leg can go either way.
+
+  C4 — 100nF ceramic (INMP441 microphone VDD decoupling):
+    One leg → INMP441 VDD pin (3.3V)
+    Other leg → GND
+    Place as close as possible to the INMP441 VDD pin — within 2mm on PCB.
+    This stops power-supply noise from getting into the audio signal.
+
+  C5 — 100nF ceramic (ADC noise filter on GPIO1):
+    One leg → GPIO1 (the junction between R3 and R4)
+    Other leg → GND
+    Place right at the GPIO1 pad.
+    This smooths out switching noise so the battery % reading is stable.
+
+STEP 6 — MicroSD card module
   n. SD SCK  → GPIO6, SD MOSI → GPIO7, SD MISO → GPIO2, SD CS → GPIO10.
   o. SD VCC  → VIN rail (5V from USB, or battery voltage ~3.7-4.2V on battery).
               Do NOT use the 3.3V pin — insufficient current for SD writes.
   p. SD GND  → GND.
 
-STEP 6 — INMP441 microphone
+STEP 7 — INMP441 microphone
   q. INMP441 WS  → GPIO4.
   r. INMP441 SCK → GPIO5.
   s. INMP441 SD  → GPIO3.
@@ -164,7 +200,7 @@ STEP 6 — INMP441 microphone
   u. INMP441 GND → GND.
   v. INMP441 L/R → GND (sets left channel — required).
 
-STEP 7 — Flash firmware and test
+STEP 8 — Flash firmware and test
   - Open Arduino IDE.
   - Board: "ESP32C3 Dev Module".
   - Upload Speed: 921600.
