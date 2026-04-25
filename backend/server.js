@@ -529,19 +529,20 @@ app.delete("/projects/:id/tasks/:taskId", auth, async (req, res) => {
 //  RECORDING ROUTES
 // ════════════════════════════════════════════════════════
 
-// Compress audio to Opus/OGG at 12kbps mono — fits hours of audio under 25MB
+// Compress audio to MP3 32kbps mono — ~14MB/hr, well under Whisper's 25MB limit
 function compressForWhisper(inputPath) {
-  const outputPath = inputPath.replace(/\.[^.]+$/, "_compressed.ogg");
+  const outputPath = inputPath.replace(/\.[^.]+$/, "_compressed.mp3");
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .noVideo()
       .audioChannels(1)
-      .audioCodec("libopus")
-      .audioBitrate("12k")
-      .outputOptions(["-map_metadata -1", "-application voip"])
+      .audioCodec("libmp3lame")
+      .audioBitrate("32k")
+      .audioFrequency(16000)
+      .outputOptions(["-map_metadata -1", "-threads 1"])
       .save(outputPath)
       .on("end", () => resolve(outputPath))
-      .on("error", reject);
+      .on("error", (err) => reject(new Error("ffmpeg: " + err.message)));
   });
 }
 
@@ -678,6 +679,7 @@ app.get("/upload/presign", auth, async (req, res) => {
 
 // ── POST /upload/process — process a file already in R2 ───
 app.post("/upload/process", auth, async (req, res) => {
+  req.setTimeout(300000); // 5 min — ffmpeg + Whisper can take a while
   const { key, duration } = req.body;
   if (!key) return res.status(400).json({ error: "key required" });
   const tmpPath = path.join(os.tmpdir(), `${Date.now()}_${path.basename(key)}`);
