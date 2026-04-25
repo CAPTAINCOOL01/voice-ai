@@ -683,7 +683,31 @@ app.post("/upload/process", auth, async (req, res) => {
   const tmpPath = path.join(os.tmpdir(), `${Date.now()}_${path.basename(key)}`);
   try {
     await downloadFromR2(key, tmpPath);
-    const transcription = await transcribeAudio(tmpPath);
+    console.log(`📥 Downloaded ${key}: ${(fs.statSync(tmpPath).size/1024/1024).toFixed(1)}MB`);
+
+    // Compress if over Whisper's 25MB limit
+    const WHISPER_LIMIT = 24 * 1024 * 1024;
+    let pathForWhisper = tmpPath;
+    let compressed = null;
+    if (fs.statSync(tmpPath).size > WHISPER_LIMIT) {
+      console.log(`🗜️ Compressing for Whisper…`);
+      try {
+        compressed = await compressForWhisper(tmpPath);
+        pathForWhisper = compressed;
+        console.log(`✅ Compressed to ${(fs.statSync(compressed).size/1024/1024).toFixed(1)}MB`);
+      } catch (compErr) {
+        console.error("❌ ffmpeg compression failed:", compErr.message);
+        throw new Error("Audio compression failed: " + compErr.message);
+      }
+    }
+
+    let transcription;
+    try {
+      transcription = await transcribeAudio(pathForWhisper);
+    } finally {
+      if (compressed && fs.existsSync(compressed)) fs.unlinkSync(compressed);
+    }
+
     const text   = transcription.text;
     const parsed = await generateNotes(text);
     const fileUrl = `${R2_PUB}/${key}`;

@@ -2079,41 +2079,23 @@ export default function App() {
     };
 
     try {
-      // Step 1: compress if over 24MB (Whisper API limit is 25MB)
-      let fileToUpload = file;
-      if (file.size > 24 * 1024 * 1024) {
-        setFileUploadStage("compressing");
-        setFileUploadProgress(5);
-        setFileUploadETA("compressing audio…");
-        try {
-          fileToUpload = await compressAudio(file);
-          console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB`);
-        } catch (compErr) {
-          console.warn("Compression failed:", compErr.message);
-          if (file.size > 25 * 1024 * 1024) {
-            throw new Error("File too large for Whisper (25MB limit) and could not be compressed. Try a shorter recording.");
-          }
-          fileToUpload = file;
-        }
-      }
-
-      // Step 2: get a presigned PUT URL from the backend
+      // Step 1: get a presigned PUT URL from the backend
       setFileUploadStage("uploading");
       setFileUploadProgress(15);
       setFileUploadETA("preparing…");
       const presignRes = await authFetch(
-        `${API}/upload/presign?filename=${encodeURIComponent(fileToUpload.name)}&contentType=${encodeURIComponent(fileToUpload.type || "audio/wav")}`
+        `${API}/upload/presign?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type || "audio/wav")}`
       );
       if (!presignRes.ok) throw new Error("Could not get upload URL");
       const { url, key } = await presignRes.json();
 
-      // Step 3: PUT the file directly to R2 — bypasses Render entirely, no size limit
+      // Step 2: PUT the file directly to R2 — bypasses Render entirely, no size limit
       setFileUploadProgress(20);
       setFileUploadETA("uploading…");
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", url);
-        xhr.setRequestHeader("Content-Type", fileToUpload.type || "audio/wav");
+        xhr.setRequestHeader("Content-Type", file.type || "audio/wav");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             const pct = Math.round((e.loaded / e.total) * 55);
@@ -2126,7 +2108,7 @@ export default function App() {
         };
         xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`R2 upload failed: ${xhr.status}`));
         xhr.onerror = () => reject(new Error("Network error during upload"));
-        xhr.send(fileToUpload);
+        xhr.send(file);
       });
 
       // Step 4: tell backend to process the file from R2
