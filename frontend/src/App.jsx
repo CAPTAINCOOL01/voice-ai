@@ -2051,8 +2051,8 @@ export default function App() {
           form.append("chunkIndex",  String(i));
           form.append("totalChunks", String(totalChunks));
           const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || `Part ${i + 1} failed`);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(`Part ${i + 1} failed (HTTP ${res.status}): ${data.error || "server error"}`);
           setFileUploadProgress(Math.round(((i + 1) / totalChunks) * 60));
         }
 

@@ -552,12 +552,15 @@ app.post("/upload/chunk", auth, upload.single("chunk"), async (req, res) => {
       return res.status(400).json({ error: "Missing chunk data" });
     }
     const sessionDir = path.join(os.tmpdir(), `chunks_${sessionId}`);
-    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true });
     const dest = path.join(sessionDir, `chunk_${String(Number(chunkIndex)).padStart(5, "0")}`);
-    fs.renameSync(req.file.path, dest);
+    // Use copyFile+unlink instead of rename — rename fails across filesystem boundaries on some hosts
+    fs.copyFileSync(req.file.path, dest);
+    fs.unlinkSync(req.file.path);
+    console.log(`📦 Chunk ${chunkIndex}/${Number(totalChunks)-1} saved: ${dest}`);
     res.json({ ok: true, chunkIndex: Number(chunkIndex), totalChunks: Number(totalChunks) });
   } catch (err) {
-    console.error("❌ Chunk upload:", err);
+    console.error("❌ Chunk upload:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -566,29 +569,34 @@ app.post("/upload/chunk", auth, upload.single("chunk"), async (req, res) => {
 app.post("/upload/finalize", auth, async (req, res) => {
   const { sessionId, filename, totalChunks, duration } = req.body;
   const sessionDir = path.join(os.tmpdir(), `chunks_${sessionId}`);
-  const mergedPath = path.join(os.tmpdir(), `${Date.now()}_${filename || "recording.wav"}`);
+  const safeFilename = (filename || "recording.wav").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const mergedPath  = path.join(os.tmpdir(), `${Date.now()}_${safeFilename}`);
   try {
-    // Verify all chunks arrived
     const files = fs.existsSync(sessionDir) ? fs.readdirSync(sessionDir).sort() : [];
+    console.log(`🔀 Finalize: sessionDir=${sessionDir}, found=${files.length}, expected=${totalChunks}`);
     if (files.length !== Number(totalChunks)) {
       return res.status(400).json({ error: `Expected ${totalChunks} chunks, got ${files.length}` });
     }
-    // Merge chunks in order into one file
-    const writeStream = fs.createWriteStream(mergedPath);
-    for (const chunkFile of files) {
-      const data = fs.readFileSync(path.join(sessionDir, chunkFile));
-      writeStream.write(data);
-    }
+    // Stream-merge chunks in order — avoids loading entire file into memory
     await new Promise((resolve, reject) => {
-      writeStream.on("finish", resolve);
+      const writeStream = fs.createWriteStream(mergedPath);
       writeStream.on("error", reject);
-      writeStream.end();
+      writeStream.on("finish", resolve);
+      const pipeNext = (i) => {
+        if (i >= files.length) { writeStream.end(); return; }
+        const readStream = fs.createReadStream(path.join(sessionDir, files[i]));
+        readStream.on("error", reject);
+        readStream.on("end", () => pipeNext(i + 1));
+        readStream.pipe(writeStream, { end: false });
+      };
+      pipeNext(0);
     });
     fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.log(`✅ Merged ${files.length} chunks → ${mergedPath} (${fs.statSync(mergedPath).size} bytes)`);
 
     const recording = await processAudioFile(
       mergedPath,
-      filename || `${Date.now()}.wav`,
+      safeFilename,
       req.user._id,
       parseFloat(duration) || 0
     );
@@ -596,7 +604,7 @@ app.post("/upload/finalize", auth, async (req, res) => {
   } catch (err) {
     if (fs.existsSync(mergedPath)) fs.unlinkSync(mergedPath);
     if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
-    console.error("❌ Finalize:", err);
+    console.error("❌ Finalize error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
