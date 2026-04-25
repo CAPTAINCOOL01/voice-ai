@@ -195,46 +195,66 @@ async function transcribeAudio(filePath) {
 }
 
 async function generateNotes(text) {
-  // Retry once on JSON parse failure
+  const SYSTEM_PROMPT = `You are a deterministic meeting intelligence system and note-taker.
+Your job is to extract structured, work-related information from voice recording transcripts.
+The transcript may contain filler words, informal speech, or background noise — clean it up and extract the full meaning.
+
+## STRICT RULES
+1. Output ONLY valid JSON. No markdown fences, no explanation, no commentary outside JSON.
+2. Be deterministic — same input must always produce the same output.
+3. Do NOT hallucinate. Extract only what is explicitly stated or clearly implied.
+4. Do NOT include personal conversations, greetings, jokes, or small talk.
+5. If a field has no data, return [] or null. Never omit the field.
+
+## TASK DETECTION (for actionItems)
+Extract BOTH explicit and implicit forward-looking tasks:
+  EXPLICIT: "Ram will send the report", "Finish the design by Monday"
+  IMPLICIT: "We should check the sizing", "Someone needs to follow up with the vendor"
+Do NOT extract past regrets ("we should have done that") or pure hypotheticals.
+
+## PRIORITY IN SUMMARY
+When writing Next Steps, order by urgency: items with deadlines or urgency words first.`;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const ai = await openai.chat.completions.create({
         model: "gpt-4o",
+        temperature: 0,
+        response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "You are an expert personal assistant and note-taker. You turn voice recording transcripts into thorough, well-structured notes. The transcript may contain filler words, partial sentences, or informal speech — clean it up and extract the full meaning. Always respond with valid JSON only." },
-          { role: "user",   content: `Analyse this voice recording transcript carefully and return a JSON object with exactly these fields:
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: `Analyse this voice recording transcript and return a JSON object with EXACTLY these fields:
 
-"title": string — max 8 words, specific and descriptive (e.g. "Weekly Team Sync Follow-Up Tasks", not "Meeting Notes")
+"title": string — max 8 words, specific and descriptive (e.g. "Weekly Team Sync Follow-Up Tasks")
 
-"summary": string — a plain markdown STRING (not an object or array). Structure it like this:
+"summary": string — plain markdown string structured as follows:
 
 ## 🗂️ Overview\\n
-2-4 sentences covering what was discussed, decided, or noted. Write in second person ("you discussed", "you mentioned", "you decided"). Even if the recording is short or unclear, extract as much meaning as possible.\\n\\n
+2-4 sentences covering what was discussed, decided, or noted. Write in second person ("you discussed", "you mentioned"). Extract as much meaning as possible even from short recordings.\\n\\n
 ## 💡 Key Points\\n
-- Each bullet is 1-2 full sentences with context, names, numbers, or deadlines if mentioned.\\n
-- Include every distinct topic, idea, or piece of information from the recording.\\n
-- Do not skip minor points — they may be important.\\n\\n
+- Each bullet is 1-2 sentences with context, names, numbers, or deadlines if mentioned.\\n
+- Include every distinct topic, idea, or piece of information.\\n
+- Do not skip minor points.\\n\\n
 ## 🔑 Decisions Made\\n
-- List every decision with the context behind it. If no explicit decisions, omit this section.\\n\\n
+- List every decision with context behind it. Omit this section entirely if no decisions were made.\\n\\n
 ## ⚠️ Challenges & Concerns\\n
-- List problems, blockers, or worries mentioned. Omit if none.\\n\\n
+- List problems, blockers, or risks mentioned. Omit entirely if none.\\n\\n
 ## 🚀 Next Steps\\n
-- List every next step or follow-up in order of urgency.\\n
+- List every next step or follow-up ordered by urgency (deadlines first).\\n
 - Include implied next steps even if not explicitly stated.
 
 "tags": array of 4-8 keyword strings covering topics, people, projects, and domains mentioned
 
-"actionItems": array of concrete, actionable to-do items that require someone to physically do something (e.g. "Send project proposal to Rahul by Friday", "Book the conference room for Thursday 3pm", "Review and merge the authentication PR"). Rules:
-  - Extract EVERY actionable item — do not cap the list
-  - Include implied actions, not just explicitly stated ones
-  - Each item must be self-contained and specific (include names, dates, details from context)
-  - Exclude observations, facts, preferences, or general notes
+"actionItems": array of concrete actionable tasks. Rules:
+  - Include EVERY task — explicit and implicit, do not cap the list
+  - Each item must start with a verb and be self-contained (include names, dates, details)
+  - Exclude observations, facts, preferences, or general statements
   - Plain text only, no markdown, no bullet prefix
-  - If nothing actionable, return an empty array
+  - Deduplicate — same task mentioned twice appears once
+  - Return [] if nothing actionable
 
 Transcript: ${text}` },
         ],
-        response_format: { type: "json_object" },
       });
       return JSON.parse(ai.choices[0].message.content);
     } catch (e) {
