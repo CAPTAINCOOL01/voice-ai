@@ -55,7 +55,16 @@ app.use(passport.session());
 // ── Serve React frontend ──────────────────────────────────
 const DIST = path.join(__dirname, "..", "frontend", "dist");
 if (fs.existsSync(DIST)) {
-  app.use(express.static(DIST));
+  // Hashed assets (JS/CSS) can be cached forever — filename changes on rebuild
+  app.use("/assets", express.static(path.join(DIST, "assets"), {
+    maxAge: "1y", immutable: true,
+  }));
+  // index.html must never be cached so the browser always gets the latest bundle reference
+  app.use(express.static(DIST, { setHeaders: (res, filePath) => {
+    if (filePath.endsWith("index.html")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
+  }}));
 }
 
 // ── MongoDB ───────────────────────────────────────────────
