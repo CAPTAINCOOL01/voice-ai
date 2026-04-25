@@ -18,6 +18,9 @@ const { Upload } = require("@aws-sdk/lib-storage");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const http       = require("http");
 const WebSocket  = require("ws");
+const ffmpeg     = require("fluent-ffmpeg");
+const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ── Config ───────────────────────────────────────────────
 const PORT       = process.env.PORT       || 5000;
@@ -526,9 +529,39 @@ app.delete("/projects/:id/tasks/:taskId", auth, async (req, res) => {
 //  RECORDING ROUTES
 // ════════════════════════════════════════════════════════
 
+// Compress audio to Opus/OGG at 12kbps mono — fits hours of audio under 25MB
+function compressForWhisper(inputPath) {
+  const outputPath = inputPath.replace(/\.[^.]+$/, "_compressed.ogg");
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioChannels(1)
+      .audioCodec("libopus")
+      .audioBitrate("12k")
+      .outputOptions(["-map_metadata -1", "-application voip"])
+      .save(outputPath)
+      .on("end", () => resolve(outputPath))
+      .on("error", reject);
+  });
+}
+
 // ── Shared processing pipeline (used by /upload and /upload/finalize) ──
 async function processAudioFile(localPath, filename, userId, duration) {
-  const transcription = await transcribeAudio(localPath);
+  const WHISPER_LIMIT = 24 * 1024 * 1024;
+  let pathForWhisper = localPath;
+  let compressed = null;
+  if (fs.statSync(localPath).size > WHISPER_LIMIT) {
+    console.log(`🗜️ Compressing ${(fs.statSync(localPath).size/1024/1024).toFixed(1)}MB for Whisper…`);
+    compressed = await compressForWhisper(localPath);
+    pathForWhisper = compressed;
+    console.log(`✅ Compressed to ${(fs.statSync(compressed).size/1024/1024).toFixed(1)}MB`);
+  }
+  let transcription;
+  try {
+    transcription = await transcribeAudio(pathForWhisper);
+  } finally {
+    if (compressed && fs.existsSync(compressed)) fs.unlinkSync(compressed);
+  }
   const text   = transcription.text;
   const parsed = await generateNotes(text);
   const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
