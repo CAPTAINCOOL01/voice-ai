@@ -2009,61 +2009,53 @@ export default function App() {
     finally { setUploading(false); setUploadStage(""); }
   };
 
-  // Compress any audio file to WebM/Opus using native browser APIs — no library needed
-  const compressAudio = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = async (e) => {
-      try {
-        // Step 1: decode original file
-        const decodeCtx = new AudioContext();
-        const decoded   = await decodeCtx.decodeAudioData(e.target.result);
-        await decodeCtx.close();
+  // Compress audio by resampling to 16kHz mono WAV — no MediaRecorder, no library, works on all browsers
+  const compressAudio = async (file) => {
+    const arrayBuffer = await file.arrayBuffer();
 
-        // Step 2: resample to 16kHz mono via OfflineAudioContext
-        const sampleRate = 16000;
-        const frameCount = Math.ceil(decoded.duration * sampleRate);
-        const offlineCtx = new OfflineAudioContext(1, frameCount, sampleRate);
-        const src        = offlineCtx.createBufferSource();
-        src.buffer       = decoded;
-        src.connect(offlineCtx.destination);
-        src.start(0);
-        const resampled  = await offlineCtx.startRendering();
+    // Decode original audio (any format the browser supports)
+    const decodeCtx  = new AudioContext();
+    const decoded    = await decodeCtx.decodeAudioData(arrayBuffer);
+    await decodeCtx.close();
 
-        // Step 3: encode — all nodes MUST come from the same AudioContext
-        const encCtx  = new AudioContext({ sampleRate });
-        const dest    = encCtx.createMediaStreamDestination();
-        const buf     = encCtx.createBuffer(1, resampled.length, sampleRate);
-        buf.copyToChannel(resampled.getChannelData(0), 0);
-        const bufSrc  = encCtx.createBufferSource();
-        bufSrc.buffer = buf;
-        bufSrc.connect(dest); // bufSrc and dest are both from encCtx ✓
+    // Resample to 16kHz mono via OfflineAudioContext — this is fast (not real-time)
+    const sampleRate = 16000;
+    const frameCount = Math.ceil(decoded.duration * sampleRate);
+    const offlineCtx = new OfflineAudioContext(1, frameCount, sampleRate);
+    const src        = offlineCtx.createBufferSource();
+    src.buffer       = decoded;
+    src.connect(offlineCtx.destination);
+    src.start(0);
+    const resampled  = await offlineCtx.startRendering(); // synchronous, no MediaRecorder needed
 
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+    // Encode resampled buffer as 16-bit PCM WAV
+    const numSamples = resampled.length;
+    const pcm        = resampled.getChannelData(0);
+    const wavBuffer  = new ArrayBuffer(44 + numSamples * 2);
+    const view       = new DataView(wavBuffer);
+    const writeStr   = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    writeStr(0,  "RIFF");
+    view.setUint32(4,  36 + numSamples * 2, true);
+    writeStr(8,  "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);        // PCM chunk size
+    view.setUint16(20, 1,  true);        // PCM format
+    view.setUint16(22, 1,  true);        // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // byte rate
+    view.setUint16(32, 2,  true);        // block align
+    view.setUint16(34, 16, true);        // bits per sample
+    writeStr(36, "data");
+    view.setUint32(40, numSamples * 2, true);
+    for (let i = 0; i < numSamples; i++) {
+      const s = Math.max(-1, Math.min(1, pcm[i]));
+      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
 
-        const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 64000 });
-        const chunks   = [];
-        recorder.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
-        recorder.onstop = async () => {
-          await encCtx.close();
-          const blob    = new Blob(chunks, { type: mimeType });
-          const newName = file.name.replace(/\.[^.]+$/, ".webm");
-          resolve(new File([blob], newName, { type: mimeType }));
-        };
-        recorder.onerror = (ev) => reject(ev.error || new Error("MediaRecorder error"));
-        // resume context BEFORE starting — browser autoplay policy suspends new contexts
-        if (encCtx.state === "suspended") await encCtx.resume();
-        recorder.start();
-        bufSrc.start(0);
-        // onended is unreliable — use duration-based timeout as the trigger
-        const durationMs = (resampled.length / sampleRate) * 1000;
-        setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, durationMs + 500);
-      } catch (err) { reject(err); }
-    };
-    reader.readAsArrayBuffer(file);
-  });
+    const blob    = new Blob([wavBuffer], { type: "audio/wav" });
+    const newName = file.name.replace(/\.[^.]+$/, "_compressed.wav");
+    return new File([blob], newName, { type: "audio/wav" });
+  };
 
   const uploadFile = async (file) => {
     if (!file) return;
