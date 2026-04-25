@@ -2063,7 +2063,6 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-    const NEEDS_COMPRESS = file.size > 20 * 1024 * 1024; // compress anything over 20 MB
 
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
     setFileUploadETA(null); setFileUploadProgress(0);
@@ -2080,51 +2079,59 @@ export default function App() {
     };
 
     try {
-      let fileToUpload = file;
-
-      // Compress large files before uploading
-      if (NEEDS_COMPRESS) {
-        setFileUploadStage("compressing");
-        setFileUploadProgress(10);
-        setFileUploadETA("compressing audio…");
-        try {
-          fileToUpload = await compressAudio(file);
-          console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB`);
-        } catch (compErr) {
-          console.warn("Compression failed, uploading original:", compErr.message);
-          // If the file is under 25MB we can still try uploading the original
-          if (file.size > 25 * 1024 * 1024) {
-            throw new Error("Could not compress this audio format. Please record shorter clips (under ~13 minutes).");
-          }
-          fileToUpload = file; // try original as-is
-        }
-      }
-
+      // Step 1: get a presigned PUT URL from the backend
       setFileUploadStage("uploading");
-      setFileUploadProgress(30);
-      setFileUploadETA("estimating…");
+      setFileUploadProgress(5);
+      setFileUploadETA("preparing…");
+      const presignRes = await authFetch(
+        `${API}/upload/presign?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type || "audio/wav")}`
+      );
+      if (!presignRes.ok) throw new Error("Could not get upload URL");
+      const { url, key } = await presignRes.json();
 
-      // Single upload — compression ensures file is well under 25MB
-      const form = new FormData();
-      form.append("audio", fileToUpload, fileToUpload.name);
-      const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-      if (res.status === 413) throw new Error("File still too large after compression. Try a shorter recording.");
-      setFileUploadProgress(70);
+      // Step 2: PUT the file directly to R2 — bypasses Render entirely, no size limit
+      setFileUploadProgress(10);
+      setFileUploadETA("uploading…");
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", url);
+        xhr.setRequestHeader("Content-Type", file.type || "audio/wav");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 55);
+            setFileUploadProgress(10 + pct);
+            const elapsed = (Date.now() - startTime) / 1000;
+            const rate    = e.loaded / elapsed;
+            const remaining = rate > 0 ? Math.round((e.total - e.loaded) / rate) : null;
+            setFileUploadETA(remaining !== null ? fmtETA(remaining) : "uploading…");
+          }
+        };
+        xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`R2 upload failed: ${xhr.status}`));
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.send(file);
+      });
 
-      // Processing phase countdown
-      let countdown = 30;
+      // Step 3: tell backend to process the file from R2
+      setFileUploadStage("processing");
+      setFileUploadProgress(65);
+      let countdown = 45;
       const processingTimer = setInterval(() => {
         countdown = Math.max(0, countdown - 1);
         setFileUploadETA(fmtETA(countdown));
-        setFileUploadProgress(prev => Math.min(94, prev + 0.8));
+        setFileUploadProgress(prev => Math.min(94, prev + 0.6));
       }, 1000);
 
-      const data = await res.json();
+      const processRes = await authFetch(`${API}/upload/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, duration: 0 }),
+      });
       clearInterval(processingTimer);
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      const data = await processRes.json();
+      if (!processRes.ok) throw new Error(data.error || "Processing failed");
+
       setFileUploadProgress(100);
       setFileUploadETA(null);
-
       setFileUploadDone(true);
       await fetchRecordings();
     } catch (err) { setFileUploadError(err.message); }

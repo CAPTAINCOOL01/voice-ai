@@ -13,8 +13,9 @@ const OpenAI         = require("openai");
 const path           = require("path");
 const fs             = require("fs");
 const os             = require("os");
-const { S3Client, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, DeleteObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const http       = require("http");
 const WebSocket  = require("ws");
 
@@ -620,6 +621,56 @@ app.post("/upload", auth, upload.single("audio"), async (req, res) => {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
     console.error("❌ Upload:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /upload/presign — return a presigned R2 PUT URL ───
+app.get("/upload/presign", auth, async (req, res) => {
+  try {
+    const { filename, contentType } = req.query;
+    if (!filename) return res.status(400).json({ error: "filename required" });
+    const key = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const command = new PutObjectCommand({
+      Bucket:      BUCKET,
+      Key:         key,
+      ContentType: contentType || "audio/wav",
+    });
+    const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
+    res.json({ url, key });
+  } catch (err) {
+    console.error("❌ Presign:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /upload/process — process a file already in R2 ───
+app.post("/upload/process", auth, async (req, res) => {
+  const { key, duration } = req.body;
+  if (!key) return res.status(400).json({ error: "key required" });
+  const tmpPath = path.join(os.tmpdir(), `${Date.now()}_${path.basename(key)}`);
+  try {
+    await downloadFromR2(key, tmpPath);
+    const transcription = await transcribeAudio(tmpPath);
+    const text   = transcription.text;
+    const parsed = await generateNotes(text);
+    const fileUrl = `${R2_PUB}/${key}`;
+    const recording = await Recording.create({
+      userId:      req.user._id,
+      filename:    key,
+      fileUrl,
+      transcript:  text,
+      title:       parsed.title       || "Untitled Recording",
+      summary:     parsed.summary     || "",
+      tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
+      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
+      duration:    parseFloat(duration) || 0,
+    });
+    res.json({ status: "ok", recording });
+  } catch (err) {
+    console.error("❌ Process:", err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
   }
 });
 
