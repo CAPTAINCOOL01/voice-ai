@@ -1854,9 +1854,10 @@ export default function App() {
   const [fileUploadDone, setFileUploadDone]         = useState(false);
   const [fileUploadError, setFileUploadError]       = useState(null);
   const [fileUploadStage, setFileUploadStage]       = useState("");
-  const [fileUploadElapsed, setFileUploadElapsed]   = useState(0);
+  const [fileUploadETA, setFileUploadETA]           = useState(null);
   const [fileUploadProgress, setFileUploadProgress] = useState(0);
   const fileUploadTimerRef = useRef(null);
+  const fileUploadElapsed  = useRef(0);
   const fileInputRef = useRef(null);
 
   const mediaRef    = useRef(null);
@@ -2018,32 +2019,54 @@ export default function App() {
     const useChunked = file.size > CHUNK_SIZE;
 
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
-    setFileUploadElapsed(0);
+    setFileUploadETA(null); setFileUploadProgress(0);
+    fileUploadElapsed.current = 0;
     const startTime = Date.now();
     fileUploadTimerRef.current = setInterval(() => {
-      setFileUploadElapsed(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
+      fileUploadElapsed.current = Math.floor((Date.now() - startTime) / 1000);
+    }, 500);
+
+    const fmtETA = (secs) => {
+      if (secs <= 0) return "almost done";
+      if (secs < 60) return `~${secs}s left`;
+      return `~${Math.floor(secs / 60)}m ${secs % 60}s left`;
+    };
 
     try {
       if (!useChunked) {
         setFileUploadStage("uploading");
-        setFileUploadProgress(30); // uploading
+        setFileUploadProgress(20);
+        setFileUploadETA("estimating…");
+        const uploadStart = Date.now();
         const form = new FormData();
         form.append("audio", file, file.name);
         const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-        if (res.status === 413) throw new Error("File too large for server (max 20 MB per request).");
+        if (res.status === 413) throw new Error("File too large for server (max 10 MB per request).");
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Upload failed");
         setFileUploadProgress(100);
+        setFileUploadETA(null);
       } else {
-        // Split into 20 MB chunks, send each separately, then merge on server
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         const sessionId   = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const chunkTimes  = [];
 
         for (let i = 0; i < totalChunks; i++) {
           setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
-          // Upload phase = 0–60% of bar, split across chunks
-          setFileUploadProgress(Math.round(((i) / totalChunks) * 60));
+          setFileUploadProgress(Math.round((i / totalChunks) * 60));
+
+          // ETA during upload: use average time per chunk × remaining chunks + ~30s for AI processing
+          if (chunkTimes.length > 0) {
+            const avgChunkMs   = chunkTimes.reduce((a, b) => a + b, 0) / chunkTimes.length;
+            const chunksLeft   = totalChunks - i;
+            const uploadETA    = Math.round((avgChunkMs * chunksLeft) / 1000);
+            const processingETA = 30; // whisper + gpt estimate
+            setFileUploadETA(fmtETA(uploadETA + processingETA));
+          } else {
+            setFileUploadETA("estimating…");
+          }
+
+          const chunkStart = Date.now();
           const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
           const form  = new FormData();
           form.append("chunk", chunk, file.name);
@@ -2053,21 +2076,30 @@ export default function App() {
           const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(`Part ${i + 1} failed (HTTP ${res.status}): ${data.error || "server error"}`);
+          chunkTimes.push(Date.now() - chunkStart);
           setFileUploadProgress(Math.round(((i + 1) / totalChunks) * 60));
         }
 
-        // Processing phase = 60–95% (indeterminate, just show progress moving)
+        // Processing phase — count down from 30s estimate
         setFileUploadStage("processing");
         setFileUploadProgress(70);
+        let processingCountdown = 30;
+        const processingTimer = setInterval(() => {
+          processingCountdown = Math.max(0, processingCountdown - 1);
+          setFileUploadETA(fmtETA(processingCountdown));
+          setFileUploadProgress(prev => Math.min(94, prev + 0.8));
+        }, 1000);
+
         const res  = await authFetch(`${API}/upload/finalize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
         });
-        setFileUploadProgress(95);
+        clearInterval(processingTimer);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Finalize failed");
         setFileUploadProgress(100);
+        setFileUploadETA(null);
       }
 
       setFileUploadDone(true);
@@ -2540,11 +2572,9 @@ export default function App() {
                       : "Uploading…"}
                   </span>
                 </div>
-                <span style={{ fontSize:11, color:"#52525b" }}>
-                  {fileUploadElapsed < 60
-                    ? `${fileUploadElapsed}s`
-                    : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
-                </span>
+                {fileUploadETA && (
+                  <span style={{ fontSize:11, color:"#52525b" }}>{fileUploadETA}</span>
+                )}
               </div>
               {/* Progress bar */}
               <div style={{ width:"100%", height:3, borderRadius:99, background:"#27272a", overflow:"hidden" }}>
@@ -2561,12 +2591,12 @@ export default function App() {
           {fileUploadDone && !fileUploading && (
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:12, color:"#10b981", fontWeight:600 }}>✓ Uploaded & analysed</span>
-              {fileUploadElapsed > 0 && (
+              {fileUploadElapsed.current > 0 && (
                 <span style={{ fontSize:11, color:"#52525b" }}>
-                  in {fileUploadElapsed < 60 ? `${fileUploadElapsed}s` : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
+                  in {fileUploadElapsed.current < 60 ? `${fileUploadElapsed.current}s` : `${Math.floor(fileUploadElapsed.current/60)}m ${fileUploadElapsed.current%60}s`}
                 </span>
               )}
-              <button onClick={()=>{ setFileUploadDone(false); setFileUploadElapsed(0); }} style={{
+              <button onClick={()=>{ setFileUploadDone(false); setFileUploadETA(null); setFileUploadProgress(0); }} style={{
                 fontSize:11, color:"#52525b", background:"none", border:"none", cursor:"pointer" }}>
                 Upload another
               </button>
