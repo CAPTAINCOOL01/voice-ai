@@ -2015,41 +2015,49 @@ export default function App() {
     reader.onerror = reject;
     reader.onload = async (e) => {
       try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const decoded  = await audioCtx.decodeAudioData(e.target.result);
+        // Step 1: decode original file
+        const decodeCtx = new AudioContext();
+        const decoded   = await decodeCtx.decodeAudioData(e.target.result);
+        await decodeCtx.close();
 
-        // Render to offline context at 16kHz mono (perfect for speech / Whisper)
-        const sampleRate  = 16000;
-        const offlineCtx  = new OfflineAudioContext(1, decoded.duration * sampleRate, sampleRate);
-        const src         = offlineCtx.createBufferSource();
-        src.buffer        = decoded;
+        // Step 2: resample to 16kHz mono via OfflineAudioContext
+        const sampleRate = 16000;
+        const frameCount = Math.ceil(decoded.duration * sampleRate);
+        const offlineCtx = new OfflineAudioContext(1, frameCount, sampleRate);
+        const src        = offlineCtx.createBufferSource();
+        src.buffer       = decoded;
         src.connect(offlineCtx.destination);
-        src.start();
-        const rendered = await offlineCtx.startRendering();
+        src.start(0);
+        const resampled  = await offlineCtx.startRendering();
 
-        // Encode to WebM/Opus via MediaRecorder
-        const dest    = audioCtx.createMediaStreamDestination();
+        // Step 3: encode — all nodes MUST come from the same AudioContext
         const encCtx  = new AudioContext({ sampleRate });
-        const buf     = encCtx.createBuffer(1, rendered.length, sampleRate);
-        buf.copyToChannel(rendered.getChannelData(0), 0);
+        const dest    = encCtx.createMediaStreamDestination();
+        const buf     = encCtx.createBuffer(1, resampled.length, sampleRate);
+        buf.copyToChannel(resampled.getChannelData(0), 0);
         const bufSrc  = encCtx.createBufferSource();
         bufSrc.buffer = buf;
-        bufSrc.connect(dest);
+        bufSrc.connect(dest); // bufSrc and dest are both from encCtx ✓
 
         const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus" : "audio/webm";
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+
         const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 64000 });
         const chunks   = [];
         recorder.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, { type: mimeType });
-          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".webm"), { type: mimeType }));
+        recorder.onstop = async () => {
+          await encCtx.close();
+          const blob    = new Blob(chunks, { type: mimeType });
+          const newName = file.name.replace(/\.[^.]+$/, ".webm");
+          resolve(new File([blob], newName, { type: mimeType }));
         };
-        recorder.onerror = reject;
+        recorder.onerror = (ev) => reject(ev.error || new Error("MediaRecorder error"));
+        // resume context BEFORE starting — browser autoplay policy suspends new contexts
+        if (encCtx.state === "suspended") await encCtx.resume();
         recorder.start();
-        bufSrc.start();
+        bufSrc.start(0);
         bufSrc.onended = () => recorder.stop();
-        encCtx.resume();
       } catch (err) { reject(err); }
     };
     reader.readAsArrayBuffer(file);
@@ -2085,14 +2093,8 @@ export default function App() {
         setFileUploadStage("compressing");
         setFileUploadProgress(10);
         setFileUploadETA("compressing audio…");
-        try {
-          fileToUpload = await compressAudio(file);
-          const savedMB = ((file.size - fileToUpload.size) / 1024 / 1024).toFixed(1);
-          console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB (saved ${savedMB}MB)`);
-        } catch (compErr) {
-          console.warn("Compression failed, uploading original:", compErr);
-          fileToUpload = file; // fall back to original
-        }
+        fileToUpload = await compressAudio(file);
+        console.log(`🗜️ Compressed: ${(file.size/1024/1024).toFixed(1)}MB → ${(fileToUpload.size/1024/1024).toFixed(1)}MB`);
       }
 
       setFileUploadStage("uploading");
