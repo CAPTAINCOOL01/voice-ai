@@ -679,7 +679,7 @@ app.get("/upload/presign", auth, async (req, res) => {
 
 // ── POST /upload/process — process a file already in R2 ───
 app.post("/upload/process", auth, async (req, res) => {
-  req.setTimeout(300000); // 5 min — ffmpeg + Whisper can take a while
+  req.setTimeout(3600000); // 60 min — large files need ffmpeg + Whisper time
   const { key, duration } = req.body;
   if (!key) return res.status(400).json({ error: "key required" });
   const tmpPath = path.join(os.tmpdir(), `${Date.now()}_${path.basename(key)}`);
@@ -1132,5 +1132,5 @@ function broadcast(data) {
 }
 
 // Give ESP32 uploads up to 90s to process; prevents silent hangs on Render cold-starts
-server.timeout = 90000;
+server.timeout = 3600000; // 60 min for large file processing
 server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
