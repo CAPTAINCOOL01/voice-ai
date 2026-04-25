@@ -1854,6 +1854,8 @@ export default function App() {
   const [fileUploadDone, setFileUploadDone]         = useState(false);
   const [fileUploadError, setFileUploadError]       = useState(null);
   const [fileUploadStage, setFileUploadStage]       = useState("");
+  const [fileUploadElapsed, setFileUploadElapsed]   = useState(0);
+  const fileUploadTimerRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const mediaRef    = useRef(null);
@@ -2011,54 +2013,31 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-
-    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB per chunk
-    const useChunked = file.size > CHUNK_SIZE;
-
+    if (file.size > 24 * 1024 * 1024) {
+      setFileUploadError(`File too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum is 24 MB — trim or compress the audio first.`);
+      return;
+    }
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
-
+    setFileUploadElapsed(0);
+    const startTime = Date.now();
+    fileUploadTimerRef.current = setInterval(() => {
+      setFileUploadElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    setFileUploadStage("uploading");
     try {
-      if (!useChunked) {
-        // Small file — single request as before
-        setFileUploadStage("uploading");
-        const form = new FormData();
-        form.append("audio", file, file.name);
-        const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Upload failed");
-      } else {
-        // Large file — chunked upload
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const sessionId   = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-        for (let i = 0; i < totalChunks; i++) {
-          setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
-          const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          const form  = new FormData();
-          form.append("chunk", chunk, file.name);
-          form.append("sessionId",   sessionId);
-          form.append("chunkIndex",  String(i));
-          form.append("totalChunks", String(totalChunks));
-          const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || `Chunk ${i + 1} failed`);
-        }
-
-        // All chunks sent — ask server to merge and process
-        setFileUploadStage("processing");
-        const res  = await authFetch(`${API}/upload/finalize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Finalize failed");
-      }
-
+      const form = new FormData();
+      form.append("audio", file, file.name);
+      const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
+      if (res.status === 413) throw new Error("File too large for server (max 24 MB).");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
       setFileUploadDone(true);
       await fetchRecordings();
     } catch (err) { setFileUploadError(err.message); }
-    finally { setFileUploading(false); setFileUploadStage(""); }
+    finally {
+      clearInterval(fileUploadTimerRef.current);
+      setFileUploading(false); setFileUploadStage("");
+    }
   };
 
   const deleteRecording = async (id) => {
@@ -2515,7 +2494,12 @@ export default function App() {
                   animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
               </div>
               <span style={{ fontSize:12, color:"#a1a1aa" }}>
-                {fileUploadStage==="analysing" ? "Generating AI notes…" : "Transcribing audio…"}
+                {fileUploadStage==="analysing" ? "Generating AI notes…" : "Transcribing & analysing…"}
+              </span>
+              <span style={{ fontSize:11, color:"#52525b", marginLeft:2 }}>
+                {fileUploadElapsed < 60
+                  ? `${fileUploadElapsed}s`
+                  : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
               </span>
             </div>
           )}
@@ -2523,7 +2507,12 @@ export default function App() {
           {fileUploadDone && !fileUploading && (
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:12, color:"#10b981", fontWeight:600 }}>✓ Uploaded & analysed</span>
-              <button onClick={()=>setFileUploadDone(false)} style={{
+              {fileUploadElapsed > 0 && (
+                <span style={{ fontSize:11, color:"#52525b" }}>
+                  in {fileUploadElapsed < 60 ? `${fileUploadElapsed}s` : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
+                </span>
+              )}
+              <button onClick={()=>{ setFileUploadDone(false); setFileUploadElapsed(0); }} style={{
                 fontSize:11, color:"#52525b", background:"none", border:"none", cursor:"pointer" }}>
                 Upload another
               </button>
