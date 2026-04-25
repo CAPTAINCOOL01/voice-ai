@@ -1855,6 +1855,7 @@ export default function App() {
   const [fileUploadError, setFileUploadError]       = useState(null);
   const [fileUploadStage, setFileUploadStage]       = useState("");
   const [fileUploadElapsed, setFileUploadElapsed]   = useState(0);
+  const [fileUploadProgress, setFileUploadProgress] = useState(0);
   const fileUploadTimerRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -2026,12 +2027,14 @@ export default function App() {
     try {
       if (!useChunked) {
         setFileUploadStage("uploading");
+        setFileUploadProgress(30); // uploading
         const form = new FormData();
         form.append("audio", file, file.name);
         const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
         if (res.status === 413) throw new Error("File too large for server (max 20 MB per request).");
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Upload failed");
+        setFileUploadProgress(100);
       } else {
         // Split into 20 MB chunks, send each separately, then merge on server
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -2039,6 +2042,8 @@ export default function App() {
 
         for (let i = 0; i < totalChunks; i++) {
           setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
+          // Upload phase = 0–60% of bar, split across chunks
+          setFileUploadProgress(Math.round(((i) / totalChunks) * 60));
           const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
           const form  = new FormData();
           form.append("chunk", chunk, file.name);
@@ -2048,16 +2053,21 @@ export default function App() {
           const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || `Part ${i + 1} failed`);
+          setFileUploadProgress(Math.round(((i + 1) / totalChunks) * 60));
         }
 
+        // Processing phase = 60–95% (indeterminate, just show progress moving)
         setFileUploadStage("processing");
+        setFileUploadProgress(70);
         const res  = await authFetch(`${API}/upload/finalize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
         });
+        setFileUploadProgress(95);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Finalize failed");
+        setFileUploadProgress(100);
       }
 
       setFileUploadDone(true);
@@ -2515,23 +2525,36 @@ export default function App() {
           )}
 
           {fileUploading && (
-            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 16px",
-              borderRadius:12, border:"1px solid #27272a", background:"#18181b" }}>
-              <div style={{ display:"flex", gap:2 }}>
-                {[0,1,2].map(j=><div key={j} style={{ width:4,height:4,borderRadius:"50%",background:"#f59e0b",
-                  animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
-                  animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
+            <div style={{ display:"flex", flexDirection:"column", gap:6, padding:"10px 14px",
+              borderRadius:12, border:"1px solid #27272a", background:"#18181b", minWidth:220 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ display:"flex", gap:2 }}>
+                    {[0,1,2].map(j=><div key={j} style={{ width:4,height:4,borderRadius:"50%",background:"#f59e0b",
+                      animationName:"waveA",animationDuration:"1s",animationDelay:`${j*0.18}s`,
+                      animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
+                  </div>
+                  <span style={{ fontSize:12, color:"#a1a1aa" }}>
+                    {fileUploadStage==="processing" ? "Transcribing & analysing…"
+                      : fileUploadStage.startsWith("uploading part") ? fileUploadStage + "…"
+                      : "Uploading…"}
+                  </span>
+                </div>
+                <span style={{ fontSize:11, color:"#52525b" }}>
+                  {fileUploadElapsed < 60
+                    ? `${fileUploadElapsed}s`
+                    : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
+                </span>
               </div>
-              <span style={{ fontSize:12, color:"#a1a1aa" }}>
-                {fileUploadStage==="processing" ? "Transcribing & analysing…"
-                  : fileUploadStage.startsWith("uploading part") ? fileUploadStage + "…"
-                  : "Uploading…"}
-              </span>
-              <span style={{ fontSize:11, color:"#52525b", marginLeft:2 }}>
-                {fileUploadElapsed < 60
-                  ? `${fileUploadElapsed}s`
-                  : `${Math.floor(fileUploadElapsed/60)}m ${fileUploadElapsed%60}s`}
-              </span>
+              {/* Progress bar */}
+              <div style={{ width:"100%", height:3, borderRadius:99, background:"#27272a", overflow:"hidden" }}>
+                <div style={{
+                  height:"100%", borderRadius:99,
+                  background: "linear-gradient(90deg,#f59e0b,#fb923c)",
+                  width: `${fileUploadProgress}%`,
+                  transition: "width 0.5s ease",
+                }}/>
+              </div>
             </div>
           )}
 
