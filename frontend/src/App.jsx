@@ -2013,24 +2013,53 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-    if (file.size > 24 * 1024 * 1024) {
-      setFileUploadError(`File too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum is 24 MB — trim or compress the audio first.`);
-      return;
-    }
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB per chunk — safely under Render's 25 MB proxy limit
+    const useChunked = file.size > CHUNK_SIZE;
+
     setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
     setFileUploadElapsed(0);
     const startTime = Date.now();
     fileUploadTimerRef.current = setInterval(() => {
       setFileUploadElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
-    setFileUploadStage("uploading");
+
     try {
-      const form = new FormData();
-      form.append("audio", file, file.name);
-      const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-      if (res.status === 413) throw new Error("File too large for server (max 24 MB).");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!useChunked) {
+        setFileUploadStage("uploading");
+        const form = new FormData();
+        form.append("audio", file, file.name);
+        const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
+        if (res.status === 413) throw new Error("File too large for server (max 20 MB per request).");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+      } else {
+        // Split into 20 MB chunks, send each separately, then merge on server
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const sessionId   = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        for (let i = 0; i < totalChunks; i++) {
+          setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
+          const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const form  = new FormData();
+          form.append("chunk", chunk, file.name);
+          form.append("sessionId",   sessionId);
+          form.append("chunkIndex",  String(i));
+          form.append("totalChunks", String(totalChunks));
+          const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `Part ${i + 1} failed`);
+        }
+
+        setFileUploadStage("processing");
+        const res  = await authFetch(`${API}/upload/finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Finalize failed");
+      }
+
       setFileUploadDone(true);
       await fetchRecordings();
     } catch (err) { setFileUploadError(err.message); }
@@ -2494,7 +2523,9 @@ export default function App() {
                   animationIterationCount:"infinite",animationTimingFunction:"ease-in-out" }}/>)}
               </div>
               <span style={{ fontSize:12, color:"#a1a1aa" }}>
-                {fileUploadStage==="analysing" ? "Generating AI notes…" : "Transcribing & analysing…"}
+                {fileUploadStage==="processing" ? "Transcribing & analysing…"
+                  : fileUploadStage.startsWith("uploading part") ? fileUploadStage + "…"
+                  : "Uploading…"}
               </span>
               <span style={{ fontSize:11, color:"#52525b", marginLeft:2 }}>
                 {fileUploadElapsed < 60
