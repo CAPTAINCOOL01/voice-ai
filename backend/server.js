@@ -516,25 +516,88 @@ app.delete("/projects/:id/tasks/:taskId", auth, async (req, res) => {
 //  RECORDING ROUTES
 // ════════════════════════════════════════════════════════
 
+// ── Shared processing pipeline (used by /upload and /upload/finalize) ──
+async function processAudioFile(localPath, filename, userId, duration) {
+  const transcription = await transcribeAudio(localPath);
+  const text   = transcription.text;
+  const parsed = await generateNotes(text);
+  const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
+  const recording = await Recording.create({
+    userId,
+    filename, fileUrl,
+    transcript:  text,
+    title:       parsed.title       || "Untitled Recording",
+    summary:     parsed.summary     || "",
+    tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
+    actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
+    duration,
+  });
+  return recording;
+}
+
+// ── POST /upload/chunk — receive one chunk of a large file ─
+app.post("/upload/chunk", auth, upload.single("chunk"), async (req, res) => {
+  try {
+    const { sessionId, chunkIndex, totalChunks } = req.body;
+    if (!sessionId || chunkIndex === undefined || !req.file) {
+      return res.status(400).json({ error: "Missing chunk data" });
+    }
+    const sessionDir = path.join(os.tmpdir(), `chunks_${sessionId}`);
+    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+    const dest = path.join(sessionDir, `chunk_${String(Number(chunkIndex)).padStart(5, "0")}`);
+    fs.renameSync(req.file.path, dest);
+    res.json({ ok: true, chunkIndex: Number(chunkIndex), totalChunks: Number(totalChunks) });
+  } catch (err) {
+    console.error("❌ Chunk upload:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /upload/finalize — merge chunks and process ───────
+app.post("/upload/finalize", auth, async (req, res) => {
+  const { sessionId, filename, totalChunks, duration } = req.body;
+  const sessionDir = path.join(os.tmpdir(), `chunks_${sessionId}`);
+  const mergedPath = path.join(os.tmpdir(), `${Date.now()}_${filename || "recording.wav"}`);
+  try {
+    // Verify all chunks arrived
+    const files = fs.existsSync(sessionDir) ? fs.readdirSync(sessionDir).sort() : [];
+    if (files.length !== Number(totalChunks)) {
+      return res.status(400).json({ error: `Expected ${totalChunks} chunks, got ${files.length}` });
+    }
+    // Merge chunks in order into one file
+    const writeStream = fs.createWriteStream(mergedPath);
+    for (const chunkFile of files) {
+      const data = fs.readFileSync(path.join(sessionDir, chunkFile));
+      writeStream.write(data);
+    }
+    await new Promise((resolve, reject) => {
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+      writeStream.end();
+    });
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+
+    const recording = await processAudioFile(
+      mergedPath,
+      filename || `${Date.now()}.wav`,
+      req.user._id,
+      parseFloat(duration) || 0
+    );
+    res.json({ status: "ok", recording });
+  } catch (err) {
+    if (fs.existsSync(mergedPath)) fs.unlinkSync(mergedPath);
+    if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.error("❌ Finalize:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /upload — transcribe + AI + save ─────────────────
 app.post("/upload", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
   try {
     const duration = parseFloat(req.body.duration) || 0;
-    const transcription = await transcribeAudio(localPath);
-    const text    = transcription.text;
-    const parsed  = await generateNotes(text);
-    const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
-    const recording = await Recording.create({
-      userId: req.user._id,
-      filename, fileUrl,
-      transcript:  text,
-      title:       parsed.title       || "Untitled Recording",
-      summary:     parsed.summary     || "",
-      tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
-      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
-      duration,
-    });
+    const recording = await processAudioFile(localPath, filename, req.user._id, duration);
     res.json({ status: "ok", recording });
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);

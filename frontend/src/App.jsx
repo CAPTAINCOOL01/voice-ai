@@ -2011,23 +2011,54 @@ export default function App() {
     if (!allowed.includes(file.type) && !file.name.match(/\.(wav|mp3|m4a|ogg|webm|flac|mp4)$/i)) {
       setFileUploadError("Unsupported file type. Use WAV, MP3, M4A, OGG, FLAC or WebM."); return;
     }
-    const MAX_MB = 24;
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setFileUploadError(`File is too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum is ${MAX_MB} MB. Compress the audio or trim the recording before uploading.`);
-      return;
-    }
-    setFileUploading(true); setFileUploadError(null); setFileUploadDone(false); setFileUploadStage("transcribing");
-    const stageTimer = setTimeout(() => setFileUploadStage("analysing"), 15000);
+
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB per chunk
+    const useChunked = file.size > CHUNK_SIZE;
+
+    setFileUploading(true); setFileUploadError(null); setFileUploadDone(false);
+
     try {
-      const form = new FormData();
-      form.append("audio", file, file.name);
-      const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+      if (!useChunked) {
+        // Small file — single request as before
+        setFileUploadStage("uploading");
+        const form = new FormData();
+        form.append("audio", file, file.name);
+        const res  = await authFetch(`${API}/upload`, { method:"POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+      } else {
+        // Large file — chunked upload
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const sessionId   = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        for (let i = 0; i < totalChunks; i++) {
+          setFileUploadStage(`uploading part ${i + 1} of ${totalChunks}`);
+          const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const form  = new FormData();
+          form.append("chunk", chunk, file.name);
+          form.append("sessionId",   sessionId);
+          form.append("chunkIndex",  String(i));
+          form.append("totalChunks", String(totalChunks));
+          const res  = await authFetch(`${API}/upload/chunk`, { method:"POST", body: form });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `Chunk ${i + 1} failed`);
+        }
+
+        // All chunks sent — ask server to merge and process
+        setFileUploadStage("processing");
+        const res  = await authFetch(`${API}/upload/finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, filename: file.name, totalChunks, duration: 0 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Finalize failed");
+      }
+
       setFileUploadDone(true);
       await fetchRecordings();
     } catch (err) { setFileUploadError(err.message); }
-    finally { clearTimeout(stageTimer); setFileUploading(false); setFileUploadStage(""); }
+    finally { setFileUploading(false); setFileUploadStage(""); }
   };
 
   const deleteRecording = async (id) => {
