@@ -2057,7 +2057,9 @@ export default function App() {
         if (encCtx.state === "suspended") await encCtx.resume();
         recorder.start();
         bufSrc.start(0);
-        bufSrc.onended = () => recorder.stop();
+        // onended is unreliable — use duration-based timeout as the trigger
+        const durationMs = (resampled.length / sampleRate) * 1000;
+        setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, durationMs + 500);
       } catch (err) { reject(err); }
     };
     reader.readAsArrayBuffer(file);
