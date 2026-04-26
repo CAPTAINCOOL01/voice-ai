@@ -1906,7 +1906,7 @@ export default function App() {
       setDeviceRecording(state === "recording");
       // When device finishes recording, refresh the list after a short delay
       // (give the backend time to finish saving the file)
-      if (prevState === "recording" && state !== "recording") {
+      if (prevState === "recording" && (state === "online" || state === "idle")) {
         setTimeout(() => fetchRecordings(), 3000);
       }
       prevState = state;
