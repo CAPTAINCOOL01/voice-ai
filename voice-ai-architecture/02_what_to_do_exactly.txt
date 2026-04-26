@@ -11,27 +11,28 @@ This file tells you exactly what to build, step by step, with no ambiguity.
 SECTION 1 — AUTHORITATIVE PIN MAP (copy these exactly, do not change)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+BOARD: ESP32-WROOM-32 (replaces ESP32-C3 Super Mini)
+Arduino IDE board setting: "ESP32 Dev Module"
+
 These are the GPIO assignments from the firmware. The PCB must match exactly.
 Changing any pin requires a firmware code change — do not do this without
 checking with Ramayana first.
 
   INMP441 Microphone (I2S):
-    GPIO 3  → SD   (serial data out from mic)
-    GPIO 4  → WS   (word select / LRCK)
-    GPIO 5  → SCK  (bit clock / BCLK)
+    GPIO 25 → WS   (word select / LRCK)
+    GPIO 26 → SCK  (bit clock / BCLK)
+    GPIO 35 → SD   (serial data out from mic) — input-only pin
     3.3V    → VDD
     GND     → GND
     GND     → L/R  (ties mic to left channel)
 
-  MicroSD Card Module (SPI):
-    GPIO 6  → SCK
-    GPIO 7  → MOSI
-    GPIO 2  → MISO
-    GPIO 10 → CS   (chip select)
-    VCC     → VCC  (see note below)
+  MicroSD Card Module (SPI — VSPI bus):
+    GPIO 18 → SCK
+    GPIO 23 → MOSI
+    GPIO 19 → MISO
+    GPIO 5  → CS   (chip select)
+    VCC     → VIN rail (5V from SW2 PIN A)
     GND     → GND
-
-    SD VCC → VIN rail (same rail as ESP32 VIN, fed from SW2 PIN A)
 
     NOTE: This module is a 5V module with an onboard 3.3V LDO regulator.
     Connect its VCC to the VIN rail, NOT to the ESP32's 3.3V pin.
@@ -46,7 +47,7 @@ checking with Ramayana first.
     enough current for reliable SD card writes.
 
   SW1 — Recording Toggle (SPDT, 3-pin):
-    GPIO 8  → COMMON (middle pin)
+    GPIO 4  → COMMON (middle pin)
     3.3V    → PIN A  (flip this way = START recording)
     GND     → PIN B  (flip this way = STOP recording)
 
@@ -62,20 +63,20 @@ checking with Ramayana first.
     ALWAYS running from the battery. SW2 only switches its 5V output.
 
   LED1 — Green (status/online):
-    GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND
+    GPIO 2  → R1 (220Ω) → LED1 anode → LED1 cathode → GND
 
   LED2 — Red (recording):
-    GPIO 20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND
+    GPIO 15 → R2 (220Ω) → LED2 anode → LED2 cathode → GND
 
   Battery Voltage Divider:
-    LiPo BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+    LiPo BAT+ → R3 (100kΩ) → GPIO 34 (ADC) → R4 (100kΩ) → GND
 
-    GPIO 1 is ADC-only. Do NOT connect any other signal to it.
-    This divider halves battery voltage: max 4.2V → 2.1V at GPIO1,
+    GPIO 34 is input-only and ADC-capable. Do NOT connect any other signal to it.
+    This divider halves battery voltage: max 4.2V → 2.1V at GPIO34,
     safely within the ESP32's 3.3V ADC input range.
 
-    Optional but recommended: 100nF ceramic cap from GPIO1 to GND,
-    placed right at the GPIO1 pad, to filter ADC switching noise.
+    Optional but recommended: 100nF ceramic cap from GPIO34 to GND,
+    placed right at the GPIO34 pad, to filter ADC switching noise.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 2 — COMPLETE BILL OF MATERIALS
@@ -83,7 +84,7 @@ SECTION 2 — COMPLETE BILL OF MATERIALS
 
 Ref   Component                    Value / Spec              Qty   Where to buy
 ────  ───────────────────────────  ────────────────────────  ───   ──────────────────────────
-U1    ESP32-C3 Super Mini          WiFi MCU module           1     Robu.in / AliExpress
+U1    ESP32-WROOM-32               WiFi MCU module           1     Robu.in / AliExpress
 U2    INMP441 module               I2S MEMS mic breakout     1     Robu.in / Amazon
 U3    MicroSD card module          SPI, 5V input (onboard LDO) 1   Robu.in / Amazon
 U4    TP4056 module                USB-C, with protection    1     Robu.in / Amazon
@@ -133,22 +134,22 @@ STEP 1 — Power rails
   would tell the firmware the battery is always full.
 
 STEP 2 — Recording switch (SW1)
-  e. SW1 COMMON → GPIO8.
+  e. SW1 COMMON → GPIO4.
   f. SW1 PIN A (start) → 3.3V rail.
   g. SW1 PIN B (stop)  → GND rail.
-  h. Add PULLDOWN resistor (10kΩ) from GPIO8 to GND if the firmware
+  h. Add PULLDOWN resistor (10kΩ) from GPIO4 to GND if the firmware
      does not already enable INPUT_PULLDOWN (it does — but good practice).
 
 STEP 3 — LEDs
-  i.  GPIO0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND.
-  j.  GPIO20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND.
+  i.  GPIO2  → R1 (220Ω) → LED1 anode → LED1 cathode → GND.
+  j.  GPIO15 → R2 (220Ω) → LED2 anode → LED2 cathode → GND.
   Note: LED anode is the LONGER leg. Cathode (shorter leg) goes to GND.
 
 STEP 4 — Battery voltage divider
   k. LiPo BAT+ → R3 (100kΩ) → junction point A → R4 (100kΩ) → GND.
-  l. Junction point A → GPIO1.
-  m. Optional: 100nF cap from GPIO1 to GND right at the junction.
-  VERIFY: with a 3.7V battery, measure ~1.85V at GPIO1 with a multimeter.
+  l. Junction point A → GPIO34.
+  m. Optional: 100nF cap from GPIO34 to GND right at the junction.
+  VERIFY: with a 3.7V battery, measure ~1.85V at GPIO34 with a multimeter.
 
 STEP 5 — Decoupling capacitors (C1, C2, C3, C4, C5)
   Place these BEFORE powering on. They filter voltage spikes and keep the
@@ -187,22 +188,22 @@ STEP 5 — Decoupling capacitors (C1, C2, C3, C4, C5)
     This smooths out switching noise so the battery % reading is stable.
 
 STEP 6 — MicroSD card module
-  n. SD SCK  → GPIO6, SD MOSI → GPIO7, SD MISO → GPIO2, SD CS → GPIO10.
+  n. SD SCK  → GPIO18, SD MOSI → GPIO23, SD MISO → GPIO19, SD CS → GPIO5.
   o. SD VCC  → VIN rail (5V from USB, or battery voltage ~3.7-4.2V on battery).
               Do NOT use the 3.3V pin — insufficient current for SD writes.
   p. SD GND  → GND.
 
 STEP 7 — INMP441 microphone
-  q. INMP441 WS  → GPIO4.
-  r. INMP441 SCK → GPIO5.
-  s. INMP441 SD  → GPIO3.
+  q. INMP441 WS  → GPIO25.
+  r. INMP441 SCK → GPIO26.
+  s. INMP441 SD  → GPIO35.
   t. INMP441 VDD → 3.3V.
   u. INMP441 GND → GND.
   v. INMP441 L/R → GND (sets left channel — required).
 
 STEP 8 — Flash firmware and test
   - Open Arduino IDE.
-  - Board: "ESP32C3 Dev Module".
+  - Board: "ESP32 Dev Module".
   - Upload Speed: 921600.
   - Tools → USB CDC on Boot: Enabled.
   - Flash the firmware from:
@@ -231,7 +232,7 @@ SCHEMATIC RULES:
   - Add a note: "SW1 and SW2 are identical parts — same footprint"
 
 COMPONENT SEARCH TIPS IN EASYEDA:
-  - ESP32-C3 Super Mini: search "ESP32-C3 SuperMini" or import from LCSC C5447790
+  - ESP32-WROOM-32: search "ESP32-WROOM-32" or import from LCSC C82899
   - INMP441: search "INMP441" — use the module (breakout board) footprint, not bare IC
   - TP4056 module: search "TP4056 USB-C" — use the module footprint
   - SD card module: search "MicroSD module SPI"
@@ -350,25 +351,25 @@ MISTAKE 1: Swapping I2S and SPI pins
   ChatGPT and other AI tools frequently suggest the wrong GPIO assignments.
   The correct wiring from the firmware is:
 
-  CORRECT (from firmware):           WRONG (commonly suggested by AI):
-  I2S WS  = GPIO4                    I2S WS  = GPIO25  ← wrong chip
-  I2S SCK = GPIO5                    I2S SCK = GPIO26  ← wrong chip
-  I2S SD  = GPIO3                    I2S SD  = GPIO34  ← wrong chip
-  SD SCK  = GPIO6                    SD SCK  = GPIO18  ← wrong
-  SD MOSI = GPIO7                    SD MOSI = GPIO23  ← wrong
-  SD MISO = GPIO2                    SD MISO = GPIO19  ← wrong
+  CORRECT (from firmware):           WRONG (old C3 Mini pins — do not use):
+  I2S WS  = GPIO25                   I2S WS  = GPIO4   ← old board
+  I2S SCK = GPIO26                   I2S SCK = GPIO5   ← old board
+  I2S SD  = GPIO35                   I2S SD  = GPIO3   ← old board
+  SD SCK  = GPIO18                   SD SCK  = GPIO6   ← old board
+  SD MOSI = GPIO23                   SD MOSI = GPIO7   ← old board
+  SD MISO = GPIO19                   SD MISO = GPIO2   ← old board
+  SD CS   = GPIO5                    SD CS   = GPIO10  ← old board
 
-  Always use Section 1 of THIS document — not an AI suggestion — as the
-  authoritative pin reference.
+  Always use Section 1 of THIS document as the authoritative pin reference.
 
-MISTAKE 2: LED2 on GPIO1
-  GPIO1 is reserved for the battery ADC. Do NOT connect LED2 to GPIO1.
-  LED2 (red, recording) is on GPIO20. This was changed from an earlier
-  version of the design — make sure you have the current pin map.
+MISTAKE 2: LED2 on GPIO34
+  GPIO34 is reserved for the battery ADC. Do NOT connect LED2 to GPIO34.
+  LED1 (green, status) is on GPIO2. LED2 (red, recording) is on GPIO15.
 
-MISTAKE 3: Connecting other signals to GPIO9
-  GPIO9 is the ESP32-C3's built-in boot button with a hardware pull-up.
-  It is NOT available as a general GPIO. Leave it unconnected on the PCB.
+MISTAKE 3: Using GPIO6, GPIO7, GPIO8, GPIO11 for anything
+  On the ESP32-WROOM-32, GPIO6–GPIO11 are connected internally to the
+  on-board flash memory. They CANNOT be used as general GPIOs.
+  Using them will crash the chip. Leave them completely unconnected.
 
 MISTAKE 4: Tapping the battery divider from the 5V/TP4056-OUT rail
   The voltage divider for GPIO1 must tap from LiPo BAT+ directly
@@ -431,9 +432,10 @@ SECTION 9 — PRE-FAB VERIFICATION CHECKLIST
 Go through this before sending Gerbers to the fab house.
 
   SCHEMATIC
-  [ ] GPIO 1 is connected ONLY to the R3/R4 voltage divider midpoint
-  [ ] GPIO 9 is NOT connected to anything
-  [ ] GPIO 20 is connected to LED2 (red LED) via R2 (220Ω)
+  [ ] GPIO 34 is connected ONLY to the R3/R4 voltage divider midpoint
+  [ ] GPIO 6, 7, 8, 9, 10, 11 are NOT connected to anything (reserved for flash)
+  [ ] GPIO 2  is connected to LED1 (green LED) via R1 (220Ω)
+  [ ] GPIO 15 is connected to LED2 (red LED) via R2 (220Ω)
   [ ] SW2 PIN B has a no-connect (X) marker — intentionally unconnected
   [ ] LiPo BAT+ (TP4056 B+) taps to R3 before SW2 (not from XL6009E1 OUT+)
   [ ] XL6009E1 IN+ connects to TP4056 B+, NOT to TP4056 OUT+

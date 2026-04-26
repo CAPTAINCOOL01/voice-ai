@@ -18,22 +18,22 @@
 #define ESP32_API_KEY "47dd2cc5700acd20f3f90b9cc7e6821014abf93c41d32c76e00a446ad80cf267"
 
 /* ─────────────────────────────────────────
-   PINS — ESP32-C3 Mini
+   PINS — ESP32-WROOM-32
    ───────────────────────────────────────── */
-#define PIN_I2S_WS    4   // INMP441 WS  (LRCK)
-#define PIN_I2S_SCK   5   // INMP441 SCK (BCLK)
-#define PIN_I2S_SD    3   // INMP441 SD  (DATA)
+#define PIN_I2S_WS   25   // INMP441 WS  (LRCK)
+#define PIN_I2S_SCK  26   // INMP441 SCK (BCLK)
+#define PIN_I2S_SD   35   // INMP441 SD  (DATA) — input-only pin, perfect for mic
 
-#define PIN_SD_CS    10   // MicroSD CS
-#define PIN_SD_MOSI   7   // MicroSD MOSI
-#define PIN_SD_MISO   2   // MicroSD MISO
-#define PIN_SD_SCK    6   // MicroSD SCK
+#define PIN_SD_CS     5   // MicroSD CS
+#define PIN_SD_MOSI  23   // MicroSD MOSI (VSPI)
+#define PIN_SD_MISO  19   // MicroSD MISO (VSPI)
+#define PIN_SD_SCK   18   // MicroSD SCK  (VSPI)
 
-#define PIN_TOGGLE    8   // Toggle switch Common pin (HIGH = record, LOW = stop)
+#define PIN_TOGGLE    4   // Toggle switch Common pin (HIGH = record, LOW = stop)
 
-#define PIN_LED_STATUS  0   // Green LED — device online / WiFi connected
-#define PIN_LED_REC    20   // Red LED   — recording in progress
-#define PIN_BAT_ADC     1   // Battery voltage divider input (100kΩ / 100kΩ to GND)
+#define PIN_LED_STATUS  2   // Green LED — device online / WiFi connected
+#define PIN_LED_REC    15   // Red LED   — recording in progress
+#define PIN_BAT_ADC    34   // Battery voltage divider input (100kΩ / 100kΩ to GND) — input-only ADC pin
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -295,7 +295,7 @@ void setupI2S() {
     .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count        = 8,
     .dma_buf_len          = 512,
-    .use_apll             = false,  // ESP32-C3 Arduino I2S driver doesn't reliably support APLL
+    .use_apll             = true,   // ESP32-WROOM-32 supports APLL for accurate sample clock
     .tx_desc_auto_clear   = false,
     .fixed_mclk           = 0
   };
@@ -314,7 +314,7 @@ void setupI2S() {
   if (err != ESP_OK) { Serial.printf("[I2S]  ✗ Pin config failed: %d\n", err); return; }
 
   i2s_zero_dma_buffer(I2S_PORT);
-  Serial.println("[I2S]  ✓ Microphone ready (WS=4, SCK=5, SD=3)");
+  Serial.println("[I2S]  ✓ Microphone ready (WS=25, SCK=26, SD=35)");
 }
 
 /* ─────────────────────────────────────────
@@ -404,14 +404,14 @@ void setup() {
   delay(3000);  // wait so Serial Monitor connects before first print
 
   Serial.println("\n\n==========================================");
-  Serial.println("      VoiceNote AI — ESP32-C3 Mini");
+  Serial.println("      VoiceNote AI — ESP32-WROOM-32");
   Serial.println("==========================================");
-  Serial.println("[BOOT] ✓ ESP32-C3 started");
+  Serial.println("[BOOT] ✓ ESP32-WROOM-32 started");
 
   // ── LEDs ──
   pinMode(PIN_LED_STATUS, OUTPUT); digitalWrite(PIN_LED_STATUS, LOW);
   pinMode(PIN_LED_REC,    OUTPUT); digitalWrite(PIN_LED_REC,    LOW);
-  Serial.println("[LED]  ✓ LEDs ready (status=GPIO0, rec=GPIO20)");
+  Serial.println("[LED]  ✓ LEDs ready (status=GPIO2, rec=GPIO15)");
 
   // ── Battery ADC ──
   pinMode(PIN_BAT_ADC, INPUT);
@@ -419,10 +419,10 @@ void setup() {
 
   // ── Toggle Switch ──
   pinMode(PIN_TOGGLE, INPUT_PULLDOWN);
-  Serial.println("[SW]   ✓ Toggle switch ready on GPIO8 (HIGH=record, LOW=stop)");
+  Serial.println("[SW]   ✓ Toggle switch ready on GPIO4 (HIGH=record, LOW=stop)");
 
   // ── SD Card ──
-  Serial.println("[SD]   Initializing SD card (CS=10, MOSI=7, MISO=2, SCK=6)...");
+  Serial.println("[SD]   Initializing SD card (CS=5, MOSI=23, MISO=19, SCK=18)...");
   SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
   delay(200);
 
@@ -430,7 +430,7 @@ void setup() {
   bool sdOk = SD.begin(PIN_SD_CS, SPI, 4000000);
   if (!sdOk) {
     Serial.println("[SD]   ✗ FAILED at 4MHz — check wiring:");
-    Serial.println("[SD]   VCC=5V, GND, CS=GPIO10, MOSI=GPIO7, MISO=GPIO2, SCK=GPIO6");
+    Serial.println("[SD]   VCC=5V, GND, CS=GPIO5, MOSI=GPIO23, MISO=GPIO19, SCK=GPIO18");
     Serial.println("[SD]   Also check: FAT32 format, card ≤32GB, card fully inserted");
     Serial.println("[SD]   Common fix: swap MOSI and MISO wires");
     while (1) {
