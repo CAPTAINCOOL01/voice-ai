@@ -29,10 +29,10 @@ VoiceNote AI is a pocket-sized AI voice recorder that:
   6. The user views transcripts, AI summaries, and tasks in a web app
 
 User controls:
-  - SW2 (power switch)  → 3-pin SPDT toggle: flips to turn the whole device ON / OFF
-  - SW1 (record switch) → SPDT toggle:
-                            flip UP   = starts recording (GPIO4 reads HIGH)
-                            flip DOWN = stops recording, saves file, uploads
+  - SW2 (power switch)  → 3-pin SPDT slider: slide to turn the whole device ON / OFF
+  - SW1 (record switch) → 3-pin SPDT slider:
+                            slide toward 3.3V = starts recording (GPIO4 reads HIGH)
+                            slide toward GND  = stops recording, saves file, uploads
 
 The firmware is COMPLETE and TESTED. The intern's job is hardware only.
 Do NOT modify any code. Do NOT change any GPIO pin assignments.
@@ -51,10 +51,10 @@ U3         MicroSD card module (SPI, 5V input)           1
 U4         TP4056 LiPo charger module (USB-C, with
            built-in over-discharge protection)           1
 U5         XL6009E1 boost converter (3.7V → 5V)         1
-SW1        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
-SW2        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
+SW1        3-pin SPDT slider switch                      1
+SW2        3-pin SPDT slider switch                      1
 
-NOTE: SW1 and SW2 are the SAME part. Buy 2× Si 26 3A 250V SPDT switches.
+NOTE: SW1 and SW2 are the SAME part. Buy 2 of the same slider switch.
 BAT        3.7V single-cell LiPo (1000–2000 mAh)        1
 LED1       Green LED, 3mm or 5mm (status / online)       1
 LED2       Red LED, 3mm or 5mm (recording active)        1
@@ -333,10 +333,10 @@ STEP 2 — Wire the breadboard
     PIN A           → ESP32 VIN + SD VCC
     PIN B           → leave unconnected (NC)
 
-  Wire SW1 (recording toggle, 3-pin SPDT):
+  Wire SW1 (recording slider, 3-pin SPDT):
     Common (middle) → GPIO 4
-    PIN A           → 3.3V  (flip this way = START recording)
-    PIN B           → GND   (flip this way = STOP recording)
+    PIN A           → 3.3V  (slide this way = START recording)
+    PIN B           → GND   (slide this way = STOP recording)
 
   Wire LEDs:
     GPIO 2  → 220Ω resistor → Green LED → GND
@@ -363,14 +363,21 @@ STEP 3 — Test
   Open Arduino IDE Serial Monitor at 115200 baud.
   Power the ESP32.
 
-  Expected sequence:
-    1. Green LED turns ON when WiFi is connected
-    2. Serial Monitor shows "WiFi connected"
-    3. Flip SW1 UP → Red LED turns ON, Serial shows "Recording started"
-    4. Speak into the microphone for 5–10 seconds
-    5. Flip SW1 DOWN → Red LED turns OFF
-    6. Serial shows "Uploading…" then "Upload successful"
-    7. Check web app — recording should appear within 30–60 seconds
+  Expected Serial Monitor output on boot:
+      === VoiceNote AI — ESP32-WROOM-32 ===
+      [SD]   ✓ OK
+      [WIFI] ✓ Connected — IP: 192.168.x.x
+      [NTP]  ✓ 2026-04-26 ...
+      [I2S]  ✓ Mic ready
+      [READY] Flip UP to record, DOWN to stop & upload.
+
+  Then:
+    1. Green LED turns ON when WiFi connects
+    2. Slide SW1 toward 3.3V → Red LED ON, Serial shows "[REC] ✓ Started"
+    3. Speak into the microphone for 5–10 seconds
+    4. Slide SW1 toward GND  → Red LED OFF, Serial shows "Uploading..."
+    5. Serial shows "[HTTP] ✓ Upload successful!"
+    6. Check web app — recording appears within 30–60 seconds
 
   If anything fails, check:
     - SD card is FAT32 formatted (not exFAT)
@@ -585,6 +592,9 @@ Final assembly steps:
   1. Press M2 brass inserts into base corners with soldering iron (heat-set)
   2. Secure LiPo battery in base with foam tape
   3. Connect battery JST connector to TP4056 B+/B−
+     NOTE: TP4056 B− connects to battery negative AND to the common GND rail.
+     Both connections required — without B− on GND rail, the circuit has no
+     common ground reference and nothing will work.
   4. Screw PCB onto standoffs with M2 screws
   5. Route any wires for switches/LEDs if they are not directly on the PCB
   6. Close lid and secure with M2 screws
@@ -659,6 +669,12 @@ SECTION 11 — COMMON MISTAKES TO AVOID
 
   If you route copper pour or traces near the ESP32-WROOM-32 antenna area,
   WiFi range drops dramatically. Mark and enforce the keepout zone in EasyEDA.
+
+── TP4056 B− MUST CONNECT TO GND RAIL ──────────────────────────────────────────
+
+  TP4056 B− connects to battery negative AND to the common GND rail.
+  If B− is only wired to the battery and not to the GND rail, the circuit
+  has no common ground reference and nothing in the device will work.
 
 ── DO NOT MODIFY THE FIRMWARE ──────────────────────────────────────────────────
 
