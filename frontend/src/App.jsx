@@ -1865,7 +1865,7 @@ export default function App() {
   const timerRef    = useRef(null);
   const durationRef = useRef(0);
 
-  const fetchRecordings = useCallback(async (isRetry = false) => {
+  const fetchRecordings = useCallback(async (isRetry = false) => {  // eslint-disable-line
     try {
       setLoadingRecs(true);
       if (!isRetry) setFetchError(null);
@@ -1875,12 +1875,12 @@ export default function App() {
       setRecordings(Array.isArray(data) ? data : []);
       setFetchError(null);
     } catch {
-      setFetchError("waking");
-      // Auto-retry every 5s while server is waking up
-      setTimeout(() => fetchRecordings(true), 5000);
+      if (!isRetry) setFetchError("waking");
+      // Only retry if not currently recording — avoid reload loop during recording
+      if (!deviceRecording) setTimeout(() => fetchRecordings(true), 5000);
     }
     finally { setLoadingRecs(false); }
-  }, []);
+  }, [deviceRecording]); // eslint-disable-line
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
