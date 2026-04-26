@@ -1,7 +1,7 @@
 ================================================================================
        VoiceNote AI — What Is This Product?
        Prepared by: Ramayana Singh
-       Date: April 2026  |  Version: 1.0
+       Date: April 2026  |  Version: 1.1 (board changed to ESP32-WROOM-32)
 ================================================================================
 
 READ THIS FIRST before touching any hardware or software.
@@ -34,7 +34,7 @@ SECTION 2 — WHAT HAPPENS WHEN YOU USE IT (user's perspective)
        b. Connects to your cloud backend over HTTPS
        c. Uploads the WAV file
        d. Cloud runs OpenAI Whisper → transcript
-       e. Cloud runs GPT-4o → summary + action items
+       e. Cloud runs GPT-4o-mini → summary + action items
        f. All of it appears on your web app within ~30-60 seconds
 
 4.  Open the web app on your phone/laptop.
@@ -51,11 +51,12 @@ SECTION 3 — HARDWARE INSIDE THE DEVICE
 
 Every component and why it exists:
 
-  ESP32-C3 Super Mini
-    The brain. A tiny WiFi-capable microcontroller that runs the firmware.
+  ESP32-WROOM-32
+    The brain. A WiFi-capable microcontroller that runs the firmware.
     It reads the microphone, writes to the SD card, connects to WiFi, and
-    sends data to the cloud. Do not substitute with a different ESP32 variant
-    without checking GPIO availability.
+    sends data to the cloud. Has better WiFi range than the C3 Super Mini.
+    GPIO6–GPIO11 are reserved for internal flash — never connect anything to them.
+    Arduino IDE board setting: "ESP32 Dev Module".
 
   INMP441 (I2S MEMS Microphone)
     The ear. A digital microphone that outputs audio over the I2S protocol.
@@ -69,17 +70,16 @@ Every component and why it exists:
 
   TP4056 (LiPo Charger + Protection)
     The power manager. Charges the LiPo battery from USB-C. Has built-in
-    overcharge, over-discharge, and short-circuit protection. Also provides
-    the regulated output that feeds the rest of the device through SW2.
+    overcharge, over-discharge, and short-circuit protection.
 
   LiPo Battery (3.7V, 1000–2000 mAh)
     The power source. Single-cell lithium polymer. The firmware reads its
-    charge level (via a voltage divider on GPIO1) and sends battery % to
+    charge level (via a voltage divider on GPIO34) and sends battery % to
     the web app every 6 seconds.
 
   SW1 — Toggle Switch (3-pin SPDT)
     The record control. Flip one way = start recording. Flip other = stop.
-    The firmware reads GPIO8: HIGH = record, LOW = stop.
+    The firmware reads GPIO4: HIGH = record, LOW = stop.
 
   XL6009E1 (Boost Converter Module)
     Steps up the battery voltage (3.0–4.2V) to a regulated 5V output.
@@ -98,25 +98,28 @@ Every component and why it exists:
     off. Same physical switch as SW1.
 
   LED1 — Green LED
-    Status indicator. On = device is online and WiFi connected.
+    Status indicator. On = device is online and WiFi connected. GPIO2.
 
   LED2 — Red LED
-    Recording indicator. On = actively recording. Off = idle.
+    Recording indicator. On = actively recording. Off = idle. GPIO15.
 
   R3 + R4 — 100kΩ / 100kΩ Voltage Divider
     Splits the battery voltage in half so the ESP32 ADC (max 3.3V input)
-    can safely read a LiPo (max 4.2V). GPIO1 reads the midpoint.
+    can safely read a LiPo (max 4.2V). GPIO34 reads the midpoint.
 
   R1, R2 — 220Ω Resistors
     Current limiters for LED1 and LED2. Prevents burning out the LEDs.
 
   C1, C2, C3 — Decoupling Capacitors (100µF, 10µF, 100nF)
-    Smooth out voltage spikes on the 3.3V power rail. Required for stable
+    Smooth out voltage spikes on the power rails. Required for stable
     ESP32 operation, especially during WiFi transmit bursts.
 
   C4 — 100nF Ceramic Capacitor
     Decouples the INMP441 microphone VDD. Prevents power-supply noise from
     appearing in the audio signal.
+
+  C5 — 100nF Ceramic Capacitor (optional)
+    ADC noise filter on GPIO34. Smooths battery % readings.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 4 — SIGNAL FLOW (what data moves where)
@@ -129,7 +132,7 @@ AUDIO PATH:
         → MongoDB (stored) → React web app (displayed to user)
 
 CONTROL PATH:
-  SW1 toggle → GPIO8 → ESP32 firmware → starts/stops recording + LED control
+  SW1 toggle → GPIO4 → ESP32 firmware → starts/stops recording + LED control
 
 STATUS PATH (real-time):
   ESP32 → HTTPS POST /device/heartbeat every 6 seconds →
@@ -137,7 +140,7 @@ STATUS PATH (real-time):
   (includes battery %, recording state, online/offline)
 
 BATTERY PATH:
-  LiPo BAT+ → 100kΩ → GPIO1 (ADC) → 100kΩ → GND
+  LiPo BAT+ → 100kΩ → GPIO34 (ADC) → 100kΩ → GND
   ESP32 reads ADC every heartbeat → sends battery % to backend
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -157,7 +160,7 @@ USB-C ──→ TP4056 IN+/IN-              (charging input, always live)
                                              SW2 PIN B ──→ NC (device OFF)
 
   Battery voltage divider taps from TP4056 B+ (raw battery voltage):
-    TP4056 B+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
+    TP4056 B+ → R3 (100kΩ) → GPIO34 (ADC) → R4 (100kΩ) → GND
   Do NOT tap from XL6009E1 OUT+ — that is always 5V regardless of battery level.
   Do NOT tap from TP4056 OUT+ — connect the divider wire directly to the B+ pad.
 
@@ -181,7 +184,7 @@ The SD module receives the full 5V rail directly (it has its own 3.3V regulator)
 SECTION 6 — THE SOFTWARE STACK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  FIRMWARE (C++ / Arduino, runs on ESP32-C3)
+  FIRMWARE (C++ / Arduino, runs on ESP32-WROOM-32)
     File: voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
     Does: mic capture, SD write, WiFi upload, heartbeat, battery reading
     DO NOT MODIFY — the PCB must match the GPIO pins exactly as specified.
@@ -227,7 +230,7 @@ SECTION 8 — CONTACT
 
 Project owner: Ramayana Singh
 Email:         ramayanaprav@gmail.com
-GitHub:        https://github.com/CAPTAINCOOL01/voice-ai
+GitHub:        https://github.com/CAPTAINCOOK01/voice-ai
 
 If anything in this document is unclear, ask before assuming.
 

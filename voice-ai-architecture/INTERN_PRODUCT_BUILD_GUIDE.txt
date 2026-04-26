@@ -1,8 +1,8 @@
 ================================================================================
        VoiceNote AI — Complete Product Build Guide for Intern
        Prepared by: Ramayana Singh  |  Date: April 2026
-       Version: 1.1  |  Status: ACTIVE — follow this document exactly
-       Last updated: Battery monitoring added (v1.1)
+       Version: 1.2  |  Status: ACTIVE — follow this document exactly
+       Last updated: Board changed to ESP32-WROOM-32 (v1.2)
 ================================================================================
 
 This document takes you from zero to a finished, boxed product:
@@ -31,7 +31,7 @@ VoiceNote AI is a pocket-sized AI voice recorder that:
 User controls:
   - SW2 (power switch)  → 3-pin SPDT toggle: flips to turn the whole device ON / OFF
   - SW1 (record switch) → SPDT toggle:
-                            flip UP   = starts recording (GPIO8 reads HIGH)
+                            flip UP   = starts recording (GPIO4 reads HIGH)
                             flip DOWN = stops recording, saves file, uploads
 
 The firmware is COMPLETE and TESTED. The intern's job is hardware only.
@@ -43,16 +43,18 @@ SECTION 2 — COMPLETE COMPONENT LIST
 
 Reference  Component                                    Qty
 ---------  -----------------------------------------  ----
-U1         ESP32-C3 Super Mini                           1
+U1         ESP32-WROOM-32                                1
+             Arduino IDE board: "ESP32 Dev Module"
+             WARNING: GPIO6–11 reserved for flash — never connect anything to them
 U2         INMP441 I2S digital MEMS microphone module    1
-U3         MicroSD card module (SPI, 3.3V compatible)    1
+U3         MicroSD card module (SPI, 5V input)           1
 U4         TP4056 LiPo charger module (USB-C, with
            built-in over-discharge protection)           1
+U5         XL6009E1 boost converter (3.7V → 5V)         1
 SW1        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
-SW2        SPDT toggle switch, 3-pin (Si 26 3A 250V) — power ON/OFF  1
+SW2        SPDT toggle switch, 3-pin (Si 26 3A 250V)    1
 
 NOTE: SW1 and SW2 are the SAME part. Buy 2× Si 26 3A 250V SPDT switches.
-      Identical footprint = one PCB pad pattern for both, easier to order.
 BAT        3.7V single-cell LiPo (1000–2000 mAh)        1
 LED1       Green LED, 3mm or 5mm (status / online)       1
 LED2       Red LED, 3mm or 5mm (recording active)        1
@@ -60,25 +62,27 @@ R1         220Ω resistor (current limit for LED1)        1
 R2         220Ω resistor (current limit for LED2)        1
 R3         100kΩ resistor (battery voltage divider — top)  1
 R4         100kΩ resistor (battery voltage divider — bottom) 1
-C1         100µF electrolytic capacitor (bulk, 3.3V)     1
+C1         100µF electrolytic capacitor (bulk, VIN rail) 1
 C2         10µF electrolytic capacitor (near ESP32)      1
 C3         100nF ceramic capacitor (near ESP32 VCC)      1
 C4         100nF ceramic capacitor (near INMP441 VDD)    1
+C5         100nF ceramic capacitor (GPIO34 ADC filter)   1
 J1         USB-C port — use the one on the TP4056 module
 
 NOTE on R3 + R4 (voltage divider):
   These two resistors allow the ESP32 to measure the LiPo battery voltage and
   report battery percentage (0–100%) to the web app in real time.
   They form a simple 50% voltage divider:
-    BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+    BAT+ → R3 (100kΩ) → GPIO34 (ADC) → R4 (100kΩ) → GND
   The divider halves battery voltage (max 4.2V → 2.1V) so it stays within
   the ESP32's 3.3V ADC input range. Do not change resistor values.
 
 Where to buy (India):
-  - ESP32-C3 Super Mini : Robu.in, AliExpress
+  - ESP32-WROOM-32      : Robu.in, AliExpress
   - INMP441 module      : Robu.in, Amazon.in
   - MicroSD module      : Robu.in, Amazon.in
   - TP4056 module       : Robu.in, ElectronicWings
+  - XL6009E1 module     : Robu.in, Amazon.in
   - Capacitors, LEDs,
     Resistors           : Robu.in, LCSC (for PCB-mount SMD parts)
   - LiPo battery        : Robu.in, Amazon.in (1000mAh recommended for v1)
@@ -95,35 +99,30 @@ different pin numbers — IGNORE THEM. Use only this table.
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  INMP441 Microphone  (I2S protocol)                                     │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  GPIO 3              │  INMP441 SD   (serial data out)                  │
-  │  GPIO 4              │  INMP441 WS   (word select / LRCK)               │
-  │  GPIO 5              │  INMP441 SCK  (bit clock)                        │
+  │  GPIO 25             │  INMP441 WS   (word select / LRCK)               │
+  │  GPIO 26             │  INMP441 SCK  (bit clock)                        │
+  │  GPIO 35             │  INMP441 SD   (serial data out) — input-only pin │
   │  GND                 │  INMP441 L/R  (tie to GND = left channel mono)   │
   │  3.3V                │  INMP441 VDD                                     │
   │  GND                 │  INMP441 GND                                     │
   └──────────────────────┴────────────────────────────────────────────────  ┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │  MicroSD Module  (SPI protocol)                                         │
+  │  MicroSD Module  (SPI — VSPI bus)                                       │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  GPIO 6              │  SD SCK   (SPI clock)                            │
-  │  GPIO 7              │  SD MOSI  (data to SD)                           │
-  │  GPIO 2              │  SD MISO  (data from SD)                         │
-  │  GPIO 10             │  SD CS    (chip select)                          │
-  │  3.3V or 5V          │  SD VCC   (CHECK YOUR MODULE — see note below)   │
+  │  GPIO 18             │  SD SCK   (SPI clock)                            │
+  │  GPIO 23             │  SD MOSI  (data to SD)                           │
+  │  GPIO 19             │  SD MISO  (data from SD)                         │
+  │  GPIO 5              │  SD CS    (chip select)                          │
+  │  VIN rail (5V)       │  SD VCC   (module has onboard LDO — use VIN,    │
+  │                      │           NOT 3.3V pin — insufficient current)   │
   │  GND                 │  SD GND                                          │
   └──────────────────────┴────────────────────────────────────────────────  ┘
-
-  NOTE on SD VCC:
-    Some MicroSD modules have an onboard 3.3V regulator and accept 5V input.
-    Some need exactly 3.3V. Check the silk-screen or datasheet for your module.
-    If in doubt, use a multimeter on the VCC pin to confirm it is 3.3V before
-    connecting to the ESP32.
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Toggle Switch SW1  (recording control)                                 │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  GPIO 8              │  Switch COMMON (middle pin)                      │
+  │  GPIO 4              │  Switch COMMON (middle pin)                      │
   │  3.3V                │  Switch PIN A  (UP position = start recording)   │
   │  GND                 │  Switch PIN B  (DOWN position = stop recording)  │
   └──────────────────────┴────────────────────────────────────────────────  ┘
@@ -131,83 +130,95 @@ different pin numbers — IGNORE THEM. Use only this table.
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  LEDs                                                                   │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  GPIO 0              │  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  │
+  │  GPIO 2              │  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  │
   │                      │    (GREEN — device online / WiFi connected)       │
-  │  GPIO 20             │  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  │
+  │  GPIO 15             │  → R2 (220Ω) → LED2 anode → LED2 cathode → GND  │
   │                      │    (RED — recording in progress)                  │
   └──────────────────────┴────────────────────────────────────────────────  ┘
 
-  !! IMPORTANT — LED2 is on GPIO 20, NOT GPIO 1 !!
-  GPIO 1 is used for battery voltage sensing (ADC input).
-  Connecting LED2 to GPIO 1 will permanently damage the ADC on that pin.
+  !! IMPORTANT — LED2 is on GPIO15, NOT GPIO34 !!
+  GPIO34 is used for battery voltage sensing (ADC input).
+  Connecting any load to GPIO34 will give incorrect battery readings.
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │  Battery Voltage Monitor  (NEW — added v1.1)                            │
+  │  Battery Voltage Monitor                                                │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  GPIO 1  (ADC input) │  Midpoint of voltage divider R3/R4               │
+  │  GPIO 34 (ADC input) │  Midpoint of voltage divider R3/R4               │
   │                      │                                                  │
-  │  Circuit:            │  BAT+ ──→ R3 (100kΩ) ──→ GPIO 1                 │
-  │                      │                              │                   │
-  │                      │                          R4 (100kΩ)              │
-  │                      │                              │                   │
-  │                      │                             GND                  │
+  │  Circuit:            │  BAT+ ──→ R3 (100kΩ) ──→ GPIO 34                │
+  │                      │                               │                  │
+  │                      │                           R4 (100kΩ)             │
+  │                      │                               │                  │
+  │                      │                              GND                 │
   │                      │                                                  │
-  │  What it does:       │  ESP32 reads ADC on GPIO 1 every 6 seconds       │
+  │  What it does:       │  ESP32 reads ADC on GPIO34 every 6 seconds       │
   │                      │  Converts voltage to battery % (0–100%)          │
   │                      │  Sends % to backend with every heartbeat         │
   │                      │  Web app displays battery level in real time      │
   │                      │                                                  │
-  │  Voltage mapping:    │  4.2V battery → 2.1V at GPIO1 = 100%            │
-  │                      │  3.7V battery → 1.85V at GPIO1 = ~58%           │
-  │                      │  3.0V battery → 1.5V at GPIO1 = 0%  (cut-off)   │
+  │  Voltage mapping:    │  4.2V battery → 2.1V at GPIO34 = 100%           │
+  │                      │  3.7V battery → 1.85V at GPIO34 = ~58%          │
+  │                      │  3.0V battery → 1.5V at GPIO34 = 0%  (cut-off)  │
   └──────────────────────┴────────────────────────────────────────────────  ┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Power                                                                  │
   ├──────────────────────┬────────────────────────────────────────────────  │
-  │  5V (from TP4056     │                                                  │
-  │  OUT+ via SW2)       │  → ESP32-C3 Super Mini 5V pin                   │
-  │  GND                 │  → ESP32-C3 Super Mini GND pin                  │
+  │  5V (XL6009E1 OUT+   │                                                  │
+  │  via SW2 PIN A)      │  → ESP32-WROOM-32 VIN pin                       │
+  │  GND                 │  → ESP32-WROOM-32 GND pin                       │
   └──────────────────────┴────────────────────────────────────────────────  ┘
+
+  !! FORBIDDEN PINS — DO NOT USE !!
+  GPIO 6, 7, 8, 9, 10, 11 are connected internally to the ESP32-WROOM-32's
+  flash memory chip. Connecting ANYTHING to these pins will crash or
+  permanently damage the board. Leave them completely unconnected on the PCB.
 
 ================================================================================
 SECTION 4 — POWER ARCHITECTURE (wire in this exact order)
 ================================================================================
 
-The TP4056 module handles all charging. The power switch (SW2) only cuts power
-to the ESP32 and peripherals — the battery always remains connected to TP4056
-so it can charge from USB even when the device is switched OFF.
+The XL6009E1 boost converter steps up battery voltage to 5V.
+The TP4056 handles charging. SW2 only cuts power to the ESP32 and peripherals.
+The battery always remains connected to both TP4056 and XL6009E1 so it charges
+from USB even when the device is switched OFF.
 
   USB-C ──────────────────→ TP4056  IN+ / IN−
                                 │
                            TP4056  B+ / B−  ←──→  LiPo Battery (always on)
                                 │
-                           TP4056  OUT+ / OUT−
-                                │
-                         SW2 COMMON (middle pin)    ← power switch
-                          │             │
-                       PIN A          PIN B
-                    (ON position)  (NC — not connected)
-                          │
-                   ┌──────┴───────┐
-                   │              │
-              ESP32 5V pin    All other modules
-              ESP32 GND       (SD, INMP441, LEDs)
+                                ├──→ XL6009E1 IN+ / IN−  (boost, always on)
+                                │         │
+                                │   XL6009E1 OUT+ (5V regulated)
+                                │         │
+                                │   SW2 COMMON (middle pin)
+                                │    │             │
+                                │  PIN A          PIN B
+                                │ (ON position)  (NC — not connected)
+                                │    │
+                                └────┴──→ ESP32 VIN + SD VCC
 
   SW2 wiring summary (3-pin SPDT):
-    COMMON (middle) → TP4056 OUT+
-    PIN A           → ESP32 5V pin + SD VCC + INMP441 VDD
-    PIN B           → NC (leave unconnected — this is the OFF position)
+    COMMON (middle) → XL6009E1 OUT+ (5V)
+    PIN A           → ESP32 VIN + SD VCC
+    PIN B           → NC (leave unconnected)
+
+  Battery voltage divider taps from TP4056 B+ (raw battery voltage):
+    TP4056 B+ → R3 (100kΩ) → GPIO34 (ADC) → R4 (100kΩ) → GND
+  Do NOT tap from XL6009E1 OUT+. That is always 5V and will read 100% forever.
+
+  CRITICAL — set XL6009E1 output to exactly 5.0V BEFORE connecting to board:
+    Power XL6009E1 alone from a 3.7V source, measure OUT+ with multimeter,
+    trim the pot to 5.0V. Too high destroys the ESP32.
+
+  CRITICAL — connect XL6009E1 IN+ to TP4056 B+, NOT TP4056 OUT+:
+    If wired to OUT+, the TP4056 charging LED stays red forever and the
+    battery never fully charges.
 
   TP4056 LED indicators (on the module itself):
-    Red  LED lit    = currently charging
-    Blue LED lit    = fully charged
-    Both off        = no USB power / battery not connected
-
-  IMPORTANT:
-    The TP4056 module already includes over-charge and over-discharge protection.
-    Do NOT add a second protection circuit — it is redundant and can cause issues.
-    Do NOT reverse battery polarity — it will permanently damage the TP4056.
+    Red  LED lit = currently charging
+    Blue LED lit = fully charged
+    Both off     = no USB power / battery not connected
 
 ================================================================================
 SECTION 5 — SYSTEM ARCHITECTURE DIAGRAM
@@ -217,11 +228,11 @@ SECTION 5 — SYSTEM ARCHITECTURE DIAGRAM
   │                        VoiceNote AI Device                          │
   │                                                                     │
   │  ┌──────────┐    ┌──────────────────────────────────────────────┐  │
-  │  │  USB-C   │    │              ESP32-C3 Super Mini              │  │
+  │  │  USB-C   │    │              ESP32-WROOM-32                   │  │
   │  │  Charge  │    │                                              │  │
   │  └────┬─────┘    │  ┌──────────────┐   ┌────────────────────┐  │  │
   │       │          │  │ I2S Driver   │   │  WiFi / HTTPS      │  │  │
-  │  ┌────▼─────┐    │  │ (GPIO 3,4,5) │   │  Upload Task       │  │  │
+  │  ┌────▼─────┐    │  │ GPIO 25,26,35│   │  Upload Task       │  │  │
   │  │  TP4056  │    │  └──────┬───────┘   └────────┬───────────┘  │  │
   │  │ Charger  │    │         │                     │              │  │
   │  └────┬─────┘    │  ┌──────▼───────┐   ┌────────▼───────────┐  │  │
@@ -229,21 +240,24 @@ SECTION 5 — SYSTEM ARCHITECTURE DIAGRAM
   │  ┌────▼─────┐    │  └──────┬───────┘   │  (Render.com)      │  │  │
   │  │  LiPo   │    │         │           │  Whisper + GPT-4   │  │  │
   │  │ Battery │    │  ┌──────▼───────┐   └────────────────────┘  │  │
-  │  └─────────┘    │  │ SD Card SPI  │                           │  │
-  │                 │  │ (GPIO 2,6,   │                           │  │
-  │  ┌──────────┐   │  │  7,10)       │                           │  │
-  │  │  SW2     │   │  └──────┬───────┘                           │  │
-  │  │  Power   ├───┤         │                                   │  │
-  │  │  Switch  │   │  ┌──────▼───────┐                           │  │
-  │  └──────────┘   │  │  WAV File    │                           │  │
-  │                 │  │  Finalizer   │                           │  │
-  │  ┌──────────┐   │  └──────────────┘                           │  │
+  │  └────┬────┘    │  │ SD Card SPI  │                           │  │
+  │       │         │  │ GPIO 18,19,  │                           │  │
+  │  ┌────▼─────┐   │  │ 23, 5        │                           │  │
+  │  │ XL6009E1 │   │  └──────┬───────┘                           │  │
+  │  │  5V Boost│   │         │                                   │  │
+  │  └────┬─────┘   │  ┌──────▼───────┐                           │  │
+  │       │         │  │  WAV File    │                           │  │
+  │  ┌────▼─────┐   │  │  Finalizer   │                           │  │
+  │  │  SW2     │   │  └──────────────┘                           │  │
+  │  │  Power   ├───┤                                             │  │
+  │  │  Switch  │   │  GPIO 4  → Record Control (SW1)             │  │
+  │  └──────────┘   │  GPIO 2  → Green LED (online)               │  │
+  │                 │  GPIO 15 → Red LED (recording)               │  │
+  │  ┌──────────┐   │  GPIO 34 → Battery ADC                       │  │
   │  │  SW1     │   │                                             │  │
-  │  │  Record  ├───┤  GPIO 8 → Control Logic                     │  │
-  │  │  Toggle  │   │  GPIO 0 → Green LED (online)                │  │
-  │  └──────────┘   │  GPIO 1 → Red LED (recording)               │  │
-  │                 └──────────────────────────────────────────────┘  │
-  │                                                                     │
+  │  │  Record  ├───┤                                             │  │
+  │  │  Toggle  │   └──────────────────────────────────────────────┘  │
+  │  └──────────┘                                                       │
   └─────────────────────────────────────────────────────────────────────┘
 
   Data flow summary:
@@ -274,9 +288,10 @@ STEP 1 — Flash the firmware
     Then: Tools → Board → Boards Manager → search "esp32" → install
 
   Board settings in Arduino IDE:
-    Board:            ESP32C3 Dev Module
+    Board:            ESP32 Dev Module
     Upload Speed:     921600
-    USB CDC on Boot:  Enabled
+    Flash Mode:       DIO
+    Partition Scheme: Default 4MB with spiffs
     Port:             whichever COM port appears when ESP32 is plugged in
 
   Open firmware file:
@@ -300,40 +315,46 @@ STEP 2 — Wire the breadboard
   Wire INMP441:
     VDD → 3.3V rail
     GND → GND rail
-    SD  → GPIO 3
-    WS  → GPIO 4
-    SCK → GPIO 5
+    WS  → GPIO 25
+    SCK → GPIO 26
+    SD  → GPIO 35
     L/R → GND rail
 
   Wire MicroSD module:
-    VCC  → 3.3V rail (or 5V if your module needs it)
+    VCC  → VIN rail (5V) — NOT 3.3V
     GND  → GND rail
-    SCK  → GPIO 6
-    MOSI → GPIO 7
-    MISO → GPIO 2
-    CS   → GPIO 10
+    SCK  → GPIO 18
+    MOSI → GPIO 23
+    MISO → GPIO 19
+    CS   → GPIO 5
 
   Wire SW2 (power switch, 3-pin SPDT):
-    Common (middle) → TP4056 OUT+  (or your bench 5V supply positive)
-    PIN A           → breadboard + power rail (feeds ESP32 5V + all modules)
-    PIN B           → leave unconnected (NC — open = device OFF)
+    Common (middle) → XL6009E1 OUT+ (or your bench 5V supply positive)
+    PIN A           → ESP32 VIN + SD VCC
+    PIN B           → leave unconnected (NC)
 
   Wire SW1 (recording toggle, 3-pin SPDT):
-    Common (middle) → GPIO 8
+    Common (middle) → GPIO 4
     PIN A           → 3.3V  (flip this way = START recording)
     PIN B           → GND   (flip this way = STOP recording)
 
   Wire LEDs:
-    GPIO 0  → 220Ω resistor → Green LED → GND
-    GPIO 20 → 220Ω resistor → Red LED   → GND   (NOT GPIO 1 — see below)
+    GPIO 2  → 220Ω resistor → Green LED → GND
+    GPIO 15 → 220Ω resistor → Red LED   → GND
 
   Wire battery voltage divider:
     BAT+ (TP4056 B+ pad or battery positive wire)
          → R3 (100kΩ)
-         → GPIO 1 (ADC input)
+         → GPIO 34 (ADC input)
          → R4 (100kΩ)
          → GND
-    (On breadboard you can use the 3.7V battery positive terminal directly)
+
+  Wire decoupling capacitors:
+    C1 (100µF) : + leg → VIN rail, − leg → GND (near ESP32 VIN pin)
+    C2 (10µF)  : + leg → VIN rail, − leg → GND (near ESP32 VIN pin)
+    C3 (100nF) : one leg → ESP32 3V3, other leg → GND
+    C4 (100nF) : one leg → INMP441 VDD, other leg → GND
+    C5 (100nF) : one leg → GPIO34 junction, other leg → GND
 
   Insert a MicroSD card (FAT32 formatted) into the module.
 
@@ -343,20 +364,18 @@ STEP 3 — Test
   Power the ESP32.
 
   Expected sequence:
-    1. Green LED blinks while connecting to WiFi
-    2. Green LED stays ON when WiFi is connected
-    3. Serial Monitor shows "WiFi connected"
-    4. Flip SW1 UP → Red LED turns ON, Serial shows "Recording started"
-    5. Speak into the microphone for 5–10 seconds
-    6. Flip SW1 DOWN → Red LED turns OFF
-    7. Serial shows "Uploading…" then "Upload successful"
-    8. Check web app — recording should appear within 30 seconds
+    1. Green LED turns ON when WiFi is connected
+    2. Serial Monitor shows "WiFi connected"
+    3. Flip SW1 UP → Red LED turns ON, Serial shows "Recording started"
+    4. Speak into the microphone for 5–10 seconds
+    5. Flip SW1 DOWN → Red LED turns OFF
+    6. Serial shows "Uploading…" then "Upload successful"
+    7. Check web app — recording should appear within 30–60 seconds
 
   If anything fails, check:
     - SD card is FAT32 formatted (not exFAT)
-    - SD card VCC is correct voltage for your module
-    - GPIO 9 is NOT used — it has a hardware pullup on the ESP32-C3 Super Mini
-      and causes auto-recording on boot if connected
+    - SD card VCC is on VIN rail, not 3.3V
+    - GPIO 6–11 are NOT connected to anything
     - Check Serial Monitor for error messages
 
 STEP 4 — Sign off before moving to PCB
@@ -378,36 +397,35 @@ Board specifications:
 
 ── STEP 1: SCHEMATIC ───────────────────────────────────────────────────────────
 
-Create a new project in EasyEDA. Start with the schematic.
-
-Place these symbols (search EasyEDA library by part name):
-  - ESP32-C3-MINI-1 (or generic 40-pin header for Super Mini footprint)
+Place these symbols in EasyEDA:
+  - ESP32-WROOM-32 (search "ESP32-WROOM-32" or use LCSC C82899)
   - INMP441 (or place as 6-pin connector with correct net labels)
-  - MicroSD slot (4-pin SPI + VCC + GND)
-  - TP4056 module (place as a sub-block with IN, B+/B−, OUT pins)
-  - SPDT switch (3-pin) × 2  ← both SW1 and SW2 are the same part, same footprint
+  - MicroSD slot (SPI + VCC + GND)
+  - TP4056 module
+  - XL6009E1 boost module
+  - SPDT switch (3-pin) × 2
   - LEDs × 2
   - Resistors × 4 (2× 220Ω for LEDs, 2× 100kΩ for battery divider)
-  - Capacitors × 4 (100µF, 10µF, 100nF, 100nF)
+  - Capacitors × 5 (100µF, 10µF, 100nF × 3)
 
 Label all nets clearly:
-  +3V3, +5V, GND, I2S_SD, I2S_WS, I2S_SCK,
+  +5V, +3V3, GND, BATT+,
+  I2S_WS, I2S_SCK, I2S_SD,
   SPI_SCK, SPI_MOSI, SPI_MISO, SPI_CS,
-  GPIO8, GPIO0, GPIO1, REC_SW, PWR_SW
+  GPIO4, GPIO2, GPIO15, GPIO34
 
 Run ERC (Electrical Rules Check) — fix all errors before moving to layout.
 
 ── STEP 2: PCB LAYOUT ──────────────────────────────────────────────────────────
 
-Component placement order (place in this sequence):
+Component placement order:
 
-  1. ESP32-C3 Super Mini — CENTER of board
+  1. ESP32-WROOM-32 — CENTER of board
        Orient so antenna end points AWAY from all other components
        (antenna area must be copper-free — see antenna rule below)
 
-  2. INMP441 — TOP-RIGHT AREA, near the top edge
+  2. INMP441 — TOP AREA, near the top edge
        The microphone opening must align with the mesh hole in the enclosure lid
-       Place face-up (mic port facing away from PCB)
 
   3. MicroSD module — RIGHT EDGE of board
        The card slot opening must align with the right-side cutout in the enclosure
@@ -415,20 +433,24 @@ Component placement order (place in this sequence):
   4. TP4056 module — BOTTOM EDGE, near USB-C side
        The USB-C port must align with the bottom enclosure cutout
 
-  5. SW1 (record toggle) — LEFT EDGE or FRONT EDGE
+  5. XL6009E1 — near TP4056, on power rail path
+
+  6. SW1 (record toggle) — LEFT or FRONT EDGE
        Must align with the switch cutout in the enclosure side panel
 
-  6. SW2 (power switch) — adjacent to SW1 on the same edge
+  7. SW2 (power switch) — adjacent to SW1
        Must align with its cutout in the enclosure
 
-  7. LED1 (green) + LED2 (red) — BOTTOM EDGE
+  8. LED1 (green) + LED2 (red) — BOTTOM EDGE
        Must align with the LED holes in the enclosure base
 
-  8. Decoupling capacitors — AS CLOSE AS PHYSICALLY POSSIBLE to their IC VCC pins
-       C1 + C2 + C3 → within 3mm of ESP32 VCC pin
-       C4           → within 3mm of INMP441 VDD pin
+  9. Decoupling capacitors — AS CLOSE AS PHYSICALLY POSSIBLE to their IC VCC pins
+       C1 + C2 + C3 → within 3mm of ESP32 VIN/VCC pin
+       C4           → within 2mm of INMP441 VDD pin
+       C5           → within 2mm of GPIO34 pad
 
-  9. Resistors R1, R2 — between GPIO pads and LED pads
+  10. Resistors R1, R2 — between GPIO pads and LED pads
+      Resistors R3, R4 — near TP4056 B+ pad, away from I2S and SPI lines
 
 Trace widths:
   Power traces  (+5V, +3V3, GND, BAT lines) : 1.0mm preferred, 0.5mm minimum
@@ -439,7 +461,7 @@ Ground plane:
   This eliminates most noise on the microphone and SD card lines
 
 Antenna clearance rule (CRITICAL):
-  The ESP32-C3 Super Mini has a PCB trace antenna on one short end.
+  The ESP32-WROOM-32 has its antenna on one short end of the module.
   In EasyEDA, mark a keepout zone around this end:
     - No copper pour
     - No traces
@@ -448,18 +470,15 @@ Antenna clearance rule (CRITICAL):
   Violating this will kill WiFi range.
 
 Mounting holes:
-  Add 4 × M2 mounting holes (2.2mm drill, 5mm copper-free pad) at board corners
-  These align with the standoffs inside the 3D-printed enclosure
+  Add 4 × M2 mounting holes (2.2mm drill) at board corners
 
 Board outline:
-  Draw a 60mm × 60mm closed rectangle on the Edge.Cuts / Board Outline layer
+  Draw a 60mm × 60mm closed rectangle on the Board Outline layer
 
 ── STEP 3: DRC ─────────────────────────────────────────────────────────────────
 
 Run DRC (Design Rule Check) in EasyEDA.
 Target: zero errors, zero airwires remaining.
-If any airwires remain, the schematic and layout are out of sync — fix this
-before sending for fabrication.
 
 ================================================================================
 SECTION 8 — PHASE 3: FABRICATION (ORDERING FROM JLCPCB)
@@ -479,15 +498,10 @@ STEP 2 — Order on JLCPCB (jlcpcb.com)
     Surface Finish:  HASL (lead-free) or ENIG (gold, better for pads)
     Silkscreen:      White
     Soldermask:      Black (preferred for product look)
-    Remove Order No: Yes (pay the small extra fee — no ugly number on board)
+    Remove Order No: Yes
 
   Estimated cost: USD $2–5 for 5 boards + shipping (~$10–15 total)
-  Lead time: 2–3 days production + ~1 week shipping (DHL Express option)
-
-STEP 3 — Order PCB-mount components from LCSC
-  If you designed with SMD components, order from LCSC (same company as JLC).
-  You can use JLCPCB's assembly service (PCBA) for SMD parts — saves soldering time.
-  For through-hole modules (ESP32, TP4056, SD module), you solder these manually.
+  Lead time: 2–3 days production + ~1 week shipping
 
 ================================================================================
 SECTION 9 — PHASE 4: PCB ASSEMBLY AND TESTING
@@ -507,30 +521,35 @@ STEP 1 — Inspect bare PCB
   Compare against your EasyEDA layout visually.
 
 STEP 2 — Solder in this order (easiest to hardest)
-  1. Resistors R1, R2         (flat, easy)
-  2. Capacitors C3, C4        (small ceramics, do these before big electrolytics)
-  3. Capacitors C1, C2        (electrolytics — polarity matters, stripe = negative)
-  4. LEDs                     (flat side of LED = cathode = GND side)
-  5. ESP32-C3 Super Mini      (pin headers or direct solder)
+  1. Resistors R1, R2, R3, R4   (flat, easy)
+  2. Capacitors C3, C4, C5      (small ceramics first)
+  3. Capacitors C1, C2          (electrolytics — polarity matters, stripe = negative)
+  4. LEDs                       (flat side of LED = cathode = GND side)
+  5. ESP32-WROOM-32             (pin headers or direct solder)
   6. INMP441 module
   7. MicroSD module
   8. TP4056 module
-  9. SW1, SW2                 (switches last — they are tall)
-  10. LiPo battery connector  (JST 2-pin or solder wires directly)
+  9. XL6009E1 module
+  10. SW1, SW2                  (switches last — they are tall)
+  11. LiPo battery connector    (JST 2-pin or solder wires directly)
 
 STEP 3 — Pre-power checks with multimeter
   Before plugging in anything:
-  a) Measure resistance between +3V3 and GND → should NOT be 0Ω (would mean short)
-  b) Measure resistance between +5V and GND → should NOT be 0Ω
+  a) Measure resistance between +5V and GND → should NOT be 0Ω (short)
+  b) Measure resistance between +3V3 and GND → should NOT be 0Ω
   c) Visually inspect all solder joints under bright light or magnifier
 
-STEP 4 — First power-on
-  Connect USB-C (no battery yet).
-  TP4056 red LED should light up (charging) or blue (no battery = float state).
-  ESP32 onboard LED may blink.
-  Open Serial Monitor → confirm WiFi connects → confirm green LED turns on.
+STEP 4 — Set XL6009E1 output voltage FIRST
+  Before connecting ESP32: power XL6009E1 alone, trim pot to exactly 5.0V.
+  Too high will destroy the ESP32.
 
-STEP 5 — Full function test (same as breadboard test in Phase 1)
+STEP 5 — First power-on
+  Connect USB-C (no battery yet).
+  TP4056 red LED should light up.
+  ESP32 should boot — open Serial Monitor to confirm WiFi connects.
+  Green LED should turn on when WiFi connects.
+
+STEP 6 — Full function test
   Insert SD card, flip record switch, speak, flip back, confirm upload on web app.
 
 ================================================================================
@@ -539,31 +558,22 @@ SECTION 10 — PHASE 5: 3D-PRINTED ENCLOSURE AND FINAL ASSEMBLY
 
 The enclosure is a two-part 3D-printed box.
 
-Enclosure design requirements:
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │  LID (top half)                                                         │
-  │    - Circular mesh hole (top area) → aligns with INMP441 mic port       │
-  │    - Side cutout for SW1 (record toggle switch body)                    │
-  │    - Side cutout for SW2 (power switch body)                            │
-  └─────────────────────────────────────────────────────────────────────────┘
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │  BASE (bottom half)                                                     │
-  │    - Side cutout for USB-C port (TP4056 module port)                    │
-  │    - Side cutout for MicroSD card slot                                  │
-  │    - Small circular hole (bottom-right) for green LED                   │
-  │    - Small circular hole (bottom) for red LED                           │
-  │    - 4 × M2 threaded inserts or screw holes at corners for PCB standoffs│
-  └─────────────────────────────────────────────────────────────────────────┘
+  LID (top half):
+    - Circular mesh hole → aligns with INMP441 mic port
+    - Side cutout for SW1 (record toggle switch body)
+    - Side cutout for SW2 (power switch body)
+
+  BASE (bottom half):
+    - Side cutout for USB-C port (TP4056 module port)
+    - Side cutout for MicroSD card slot
+    - Small circular hole (bottom-right) for green LED
+    - Small circular hole (bottom) for red LED
+    - 4 × M2 threaded inserts or screw holes at corners for PCB standoffs
 
   Internal stack (bottom to top):
     1. LiPo battery (sits in base, held with double-sided foam tape)
     2. PCB on M2 brass standoffs (3–5mm height to clear battery)
     3. Lid snaps or screws onto base
-
-3D model file:
-  The enclosure STL files will be provided separately.
-  If changes are needed (cutout positions don't align), measure the PCB
-  component positions and report back to Ramayana.
 
 Print settings (recommended):
   Material:    PLA or PETG
@@ -574,7 +584,7 @@ Print settings (recommended):
 Final assembly steps:
   1. Press M2 brass inserts into base corners with soldering iron (heat-set)
   2. Secure LiPo battery in base with foam tape
-  3. Connect battery JST connector to PCB or TP4056 B+/B−
+  3. Connect battery JST connector to TP4056 B+/B−
   4. Screw PCB onto standoffs with M2 screws
   5. Route any wires for switches/LEDs if they are not directly on the PCB
   6. Close lid and secure with M2 screws
@@ -583,49 +593,36 @@ Final assembly steps:
 SECTION 11 — COMMON MISTAKES TO AVOID
 ================================================================================
 
-These are real mistakes that will waste days of your time. Read this carefully.
+── WRONG GPIO PINS ─────────────────────────────────────────────────────────────
 
-── WRONG GPIO PINS FROM OTHER SOURCES ─────────────────────────────────────────
+  Old board (C3 Mini) vs current board (WROOM-32) — do NOT mix these up:
 
-  Several AI tools (including ChatGPT) suggest the following — ALL WRONG:
+  Old C3 Mini pins (WRONG)  │  Current WROOM-32 pins (CORRECT)
+  ──────────────────────────┼──────────────────────────────────
+  I2S WS  → GPIO 4          │  I2S WS  → GPIO 25
+  I2S SCK → GPIO 5          │  I2S SCK → GPIO 26
+  I2S SD  → GPIO 3          │  I2S SD  → GPIO 35
+  SD SCK  → GPIO 6          │  SD SCK  → GPIO 18
+  SD MOSI → GPIO 7          │  SD MOSI → GPIO 23
+  SD MISO → GPIO 2          │  SD MISO → GPIO 19
+  SD CS   → GPIO 10         │  SD CS   → GPIO 5
+  Toggle  → GPIO 8          │  Toggle  → GPIO 4
+  Green LED → GPIO 0        │  Green LED → GPIO 2
+  Red LED   → GPIO 20       │  Red LED   → GPIO 15
+  Battery ADC → GPIO 1      │  Battery ADC → GPIO 34
 
-  What ChatGPT says      │  What the firmware actually uses
-  ───────────────────────┼──────────────────────────────────
-  I2S SD  → GPIO 6       │  I2S SD  → GPIO 3   ← CORRECT
-  I2S WS  → GPIO 5       │  I2S WS  → GPIO 4   ← CORRECT
-  I2S SCK → GPIO 4       │  I2S SCK → GPIO 5   ← CORRECT
-  SPI SCK → GPIO 3       │  SPI SCK → GPIO 6   ← CORRECT
+  Rule: ALWAYS use Section 3 of this document. Never use another source.
 
-  If you wire using those wrong numbers, the microphone captures silence and
-  the SD card fails — and the error messages will look like hardware failures,
-  not wiring mistakes. You will waste hours debugging.
+── GPIO 6–11 ARE FORBIDDEN ─────────────────────────────────────────────────────
 
-  Rule: ALWAYS use Section 3 of this document. Never cross-reference pin numbers
-  from any other source without asking Ramayana first.
+  On the ESP32-WROOM-32, GPIO6–GPIO11 are connected internally to the
+  on-board SPI flash memory. Connecting anything to them will crash or
+  permanently damage the board. Leave them completely unconnected.
 
-── DO NOT CONNECT LED2 TO GPIO 1 ───────────────────────────────────────────
+── DO NOT CONNECT LED2 TO GPIO34 ───────────────────────────────────────────────
 
-  GPIO 1 is the battery ADC input. It must only connect to the midpoint of the
-  R3/R4 voltage divider. If you connect an LED or any low-impedance load to
-  GPIO 1, you will damage the ADC permanently and get incorrect readings.
-  LED2 (red, recording) goes to GPIO 20. See Section 3.
-
-── DO NOT USE GPIO 9 FOR ANYTHING ─────────────────────────────────────────────
-
-  The ESP32-C3 Super Mini has a hardware-level pullup resistor on GPIO 9.
-  This is the BOOT button pin.
-  If you connect anything to GPIO 9, the device will behave randomly on boot
-  or auto-start recording before you touch any switch.
-  GPIO 9 is reserved by the hardware — leave it unconnected.
-
-── DO NOT ADD AN EXTERNAL LDO REGULATOR ────────────────────────────────────────
-
-  ChatGPT recommends adding an AMS1117-3.3 LDO to your design.
-  This is wrong for this project.
-  The TP4056 module already regulates output voltage.
-  The ESP32-C3 Super Mini has its own built-in 3.3V regulator.
-  Adding a second LDO creates voltage stacking problems and wastes board space.
-  Do not add it.
+  GPIO34 is the battery ADC input. It must only connect to the midpoint of the
+  R3/R4 voltage divider. LED2 (red, recording) goes to GPIO15.
 
 ── DO NOT SKIP DECOUPLING CAPACITORS ───────────────────────────────────────────
 
@@ -635,7 +632,7 @@ These are real mistakes that will waste days of your time. Read this carefully.
     - Random ESP32 resets during WiFi upload
     - SD card file corruption
     - Audio noise / hissing
-  The capacitors listed in Section 2 are the minimum viable set. Do not remove any.
+  All five capacitors (C1–C5) are required. Do not remove any.
 
 ── FORMAT THE SD CARD CORRECTLY ────────────────────────────────────────────────
 
@@ -652,12 +649,16 @@ These are real mistakes that will waste days of your time. Read this carefully.
   Reversed polarity permanently destroys the TP4056 and may cause the battery
   to swell or vent. Double-check polarity before connecting.
 
+── SET XL6009E1 VOLTAGE BEFORE CONNECTING ESP32 ────────────────────────────────
+
+  The XL6009E1 boost converter has a trim pot. By default it may output 8–12V.
+  This will instantly destroy the ESP32. Always measure and set to exactly 5.0V
+  BEFORE connecting any other component.
+
 ── ANTENNA KEEPOUT IS NOT OPTIONAL ─────────────────────────────────────────────
 
-  If you route copper pour or traces under the ESP32-C3 antenna area,
-  WiFi range drops dramatically (sometimes to under 1 metre).
-  The firmware relies on WiFi to upload recordings.
-  Mark and enforce the keepout zone in EasyEDA before routing.
+  If you route copper pour or traces near the ESP32-WROOM-32 antenna area,
+  WiFi range drops dramatically. Mark and enforce the keepout zone in EasyEDA.
 
 ── DO NOT MODIFY THE FIRMWARE ──────────────────────────────────────────────────
 
@@ -693,6 +694,7 @@ Phase 3 — Fabrication
   [ ] Component order placed (LCSC or Robu)
 
 Phase 4 — Assembly
+  [ ] XL6009E1 trimmed to 5.0V before connecting ESP32
   [ ] Pre-power short circuit check passed
   [ ] All components soldered
   [ ] First power-on successful
@@ -714,24 +716,24 @@ Firmware location:
   voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
 
 Flash settings in Arduino IDE:
-  Board:            ESP32C3 Dev Module
+  Board:            ESP32 Dev Module
   Upload Speed:     921600
-  USB CDC on Boot:  Enabled
-  Flash Mode:       QIO 80MHz
+  Flash Mode:       DIO
   Partition Scheme: Default 4MB with spiffs
 
 The firmware does the following automatically:
-  - Connects to WiFi on boot (credentials embedded via environment)
-  - Reads GPIO 8 for switch state every loop iteration
-  - GPIO HIGH → starts I2S capture, opens WAV file on SD, turns on red LED
+  - Connects to WiFi on boot
+  - Reads GPIO4 for switch state every loop iteration
+  - GPIO HIGH → starts I2S capture, opens WAV file on SD, turns on red LED (GPIO15)
   - GPIO LOW  → stops capture, finalizes WAV header, sends heartbeat "idle"
                 to backend, then uploads WAV file over HTTPS multipart POST
   - Sends heartbeat every 6 seconds to keep the web app status indicator live
-  - Green LED reflects WiFi/online status
+  - Green LED (GPIO2) reflects WiFi/online status
+  - Battery % read from GPIO34 ADC, sent with every heartbeat
 
 Backend endpoint (already deployed on Render.com):
   POST https://voice-ai-da3b.onrender.com/save
-  Authentication: X-Api-Key header (stored in firmware as environment variable)
+  Authentication: X-Api-Key header (stored in firmware)
 
 ================================================================================
 SECTION 14 — CONTACT & ESCALATION
@@ -739,7 +741,7 @@ SECTION 14 — CONTACT & ESCALATION
 
 Project owner: Ramayana Singh
 Email:         ramayanaprav@gmail.com
-GitHub:        https://github.com/CAPTAINCOOL01/voice-ai
+GitHub:        https://github.com/CAPTAINCOOK01/voice-ai
 
 When to ask before proceeding:
   - Any pin number you are unsure about

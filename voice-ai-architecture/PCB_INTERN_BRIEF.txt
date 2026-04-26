@@ -1,7 +1,7 @@
 ================================================================================
        VoiceNote AI — PCB Design Brief for Intern
        Prepared by: Ramayana Singh
-       Date: April 2026  |  Version: 1.2 (corrected power architecture)
+       Date: April 2026  |  Version: 1.3 (board changed to ESP32-WROOM-32)
 ================================================================================
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -27,7 +27,10 @@ There is also a power switch to turn the whole device on/off.
 SECTION 2 — COMPLETE COMPONENT LIST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-U1  — ESP32-C3 Super Mini (main microcontroller, WiFi built-in)
+U1  — ESP32-WROOM-32 (main microcontroller, WiFi built-in)
+        Arduino IDE board: "ESP32 Dev Module"
+        WARNING: GPIO6–GPIO11 are connected to internal flash.
+        NEVER connect anything to GPIO6, 7, 8, 9, 10, or 11.
 U2  — INMP441 (I2S digital MEMS microphone module)
 U3  — MicroSD card module (SPI interface, 5V input with onboard LDO)
 U4  — TP4056 (LiPo battery charger module with protection, USB-C input)
@@ -48,69 +51,62 @@ C1  — 100µF electrolytic capacitor (bulk decoupling on 5V rail near ESP32 VIN
 C2  — 10µF electrolytic capacitor (decoupling near ESP32 VCC)
 C3  — 100nF ceramic capacitor (high-freq decoupling near ESP32)
 C4  — 100nF ceramic capacitor (decoupling near INMP441 VDD)
-C5  — 100nF ceramic capacitor (GPIO1 ADC filter — optional but recommended)
+C5  — 100nF ceramic capacitor (GPIO34 ADC filter — optional but recommended)
 J1  — USB-C connector (or use the one already on TP4056 module)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 3 — COMPLETE PIN MAPPING (from firmware)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ESP32-C3 Super Mini GPIO assignments:
+ESP32-WROOM-32 GPIO assignments:
 
   INMP441 Microphone (I2S):
-    GPIO 3  → INMP441 SD   (data out)
-    GPIO 4  → INMP441 WS   (word select / LRCK)
-    GPIO 5  → INMP441 SCK  (bit clock)
+    GPIO 25 → INMP441 WS   (word select / LRCK)
+    GPIO 26 → INMP441 SCK  (bit clock)
+    GPIO 35 → INMP441 SD   (data out) — input-only pin, perfect for mic data
     GND     → INMP441 L/R  (set to left channel)
     3.3V    → INMP441 VDD
     GND     → INMP441 GND
 
-  MicroSD Card Module (SPI):
-    GPIO 6  → SD SCK
-    GPIO 7  → SD MOSI
-    GPIO 2  → SD MISO
-    GPIO 10 → SD CS (chip select)
-    VIN rail → SD VCC  (module is 5V type with onboard LDO; connect to VIN,
-                        NOT to ESP32 3.3V pin — insufficient current)
+  MicroSD Card Module (SPI — VSPI bus):
+    GPIO 18 → SD SCK
+    GPIO 23 → SD MOSI
+    GPIO 19 → SD MISO
+    GPIO 5  → SD CS (chip select)
+    VIN rail → SD VCC  (5V input — module has onboard LDO; do NOT use 3.3V pin)
     GND     → SD GND
 
   SW1 — Recording Toggle (SPDT, 3-pin):
-    GPIO 8  → Switch COMMON (middle pin)
-    3.3V    → Switch PIN A  (one outer pin — flip this way = START recording)
-    GND     → Switch PIN B  (other outer pin — flip this way = STOP recording)
+    GPIO 4  → Switch COMMON (middle pin)
+    3.3V    → Switch PIN A  (flip this way = START recording)
+    GND     → Switch PIN B  (flip this way = STOP recording)
 
   SW2 — Power Switch (SPDT, 3-pin):
-    TP4056 OUT+  → Switch COMMON (middle pin)
-    ESP32 5V +
-    all modules  → Switch PIN A  (ON position — power flows to device)
-    NC           → Switch PIN B  (OFF position — leave this pin unconnected)
-
-    WHY 3-pin for power: The SPDT middle pin carries current from the TP4056.
-    Flipping to PIN A connects power to the ESP32 and peripherals (device ON).
-    Flipping to PIN B opens the circuit (device OFF). PIN B is left unconnected.
-    This way both switches are identical parts — same footprint, same sourcing.
+    XL6009E1 OUT+ (5V) → Switch COMMON (middle pin)
+    ESP32 VIN +
+    SD VCC             → Switch PIN A  (ON — 5V flows to all modules)
+    NC                 → Switch PIN B  (OFF — leave unconnected)
 
   LEDs:
-    GPIO 0  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  (green, status)
-    GPIO 20 → R2 (220Ω) → LED2 anode → LED2 cathode → GND  (red, recording)
+    GPIO 2  → R1 (220Ω) → LED1 anode → LED1 cathode → GND  (green, status)
+    GPIO 15 → R2 (220Ω) → LED2 anode → LED2 cathode → GND  (red, recording)
 
-  Battery Voltage Monitor (NEW — v1.1):
-    BAT+ → R3 (100kΩ) → GPIO 1 (ADC) → R4 (100kΩ) → GND
+  Battery Voltage Monitor:
+    BAT+ → R3 (100kΩ) → GPIO 34 (ADC) → R4 (100kΩ) → GND
 
-    GPIO 1 is an ADC-only input. Do NOT connect any other signal to this pin.
-    LED2 is on GPIO 20 (not GPIO 1) specifically to free GPIO 1 for the ADC.
+    GPIO 34 is input-only and ADC-capable. Do NOT connect any other signal here.
 
-    Voltage divider function:
-      4.2V (full battery) → 2.1V at GPIO 1 → firmware reads 100%
-      3.7V (half charge)  → 1.85V at GPIO 1 → firmware reads ~58%
-      3.0V (empty)        → 1.5V at GPIO 1  → firmware reads 0%
+    Voltage mapping:
+      4.2V (full battery) → 2.1V at GPIO34 → firmware reads 100%
+      3.7V (half charge)  → 1.85V at GPIO34 → firmware reads ~58%
+      3.0V (empty)        → 1.5V at GPIO34 → firmware reads 0%
 
     The firmware sends battery % to the backend every 6 seconds.
     The web app displays it as a live battery indicator in the navbar.
 
   Power:
-    5V (USB or TP4056 OUT+) → ESP32 5V pin
-    GND                     → ESP32 GND
+    XL6009E1 OUT+ (5V) via SW2 PIN A → ESP32 VIN pin
+    GND → ESP32 GND pin
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 4 — POWER ARCHITECTURE
@@ -133,7 +129,7 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
                                                             GND rail
 
   Battery voltage divider taps from TP4056 B+ (raw battery voltage):
-    TP4056 B+ → R3 (100kΩ) → GPIO1 (ADC) → R4 (100kΩ) → GND
+    TP4056 B+ → R3 (100kΩ) → GPIO34 (ADC) → R4 (100kΩ) → GND
   Do NOT tap from XL6009E1 OUT+. That is always 5V and will read as 100% forever.
   Do NOT tap from TP4056 OUT+. Wire directly to the B+ pad (same node as BAT+).
 
@@ -148,13 +144,6 @@ IMPORTANT: Wire power in this exact order so battery charges even when device is
     charging LED stays red forever and the battery never fully charges.
   - Connecting XL6009E1 to B+ (battery directly) bypasses the protection output
     path. TP4056 can now correctly detect full charge and switch its LED green.
-  - The TP4056 protection IC still protects against over-discharge on the B- path.
-
-  Why this order:
-  - TP4056 charges battery from USB regardless of SW2 position
-  - XL6009E1 is always on (powered from B+) — stable 5V before SW2 turns on
-  - SW2 only cuts the 5V rail to ESP32 and peripherals
-  - Battery charges whether device is ON or OFF as long as USB is plugged in
 
   TP4056 LED indicators:
   - Red LED on module = charging
@@ -166,7 +155,7 @@ SECTION 5 — PCB DESIGN REQUIREMENTS
 
 Tool: EasyEDA (free, browser-based at easyeda.com)
 
-Board size target: ~60mm × 60mm (to fit the enclosure shown in product renders)
+Board size target: ~60mm × 60mm (to fit the enclosure)
 
 Layer: 2-layer PCB is sufficient
 
@@ -179,34 +168,32 @@ Ground plane:
   - This reduces noise on the microphone and SPI lines significantly
 
 Component placement priorities:
-  1. ESP32-C3 Super Mini — center of board
+  1. ESP32-WROOM-32 — center of board, antenna end pointing AWAY from
+     all other components (antenna keepout — see below)
   2. INMP441 — place near top edge (microphone hole in enclosure lid)
   3. MicroSD — place near right edge (slot accessible from side)
   4. TP4056 — near USB-C port edge
-  5. Power switch — near edge for enclosure cutout
-  6. Toggle switch — near edge for enclosure cutout
+  5. Power switch SW2 — near edge for enclosure cutout
+  6. Toggle switch SW1 — near edge for enclosure cutout
   7. LEDs — near bottom edge facing the enclosure LED holes
   8. Decoupling caps — place as close as possible to their IC's VCC pin
-
-Decoupling capacitors (VERY important — do not skip):
-  - C1 (100µF) — on 3.3V rail, near ESP32 VCC pin
-  - C2 (10µF)  — on 3.3V rail, near ESP32 VCC pin (in parallel with C1)
-  - C3 (100nF) — on 3.3V rail, as close as physically possible to ESP32 VCC
-  - C4 (100nF) — on INMP441 VDD pin, as close as physically possible
+       C1, C2, C3 → within 3mm of ESP32 VIN/VCC pin
+       C4         → within 2mm of INMP441 VDD pin
+       C5         → within 2mm of GPIO34 pad
 
 Battery voltage divider (R3 + R4):
-  - Place R3 and R4 near the TP4056 BAT+ pad and GPIO 1 trace
-  - Keep the trace from R3/R4 midpoint to GPIO 1 short (under 20mm)
+  - Place near the TP4056 BAT+ pad and GPIO34 trace
+  - Keep the trace from R3/R4 midpoint to GPIO34 short (under 20mm)
   - Route away from I2S and SPI lines to avoid noise coupling into the ADC
-  - Do NOT place this trace near the antenna area
 
-Antenna clearance:
-  - ESP32-C3 Super Mini has a PCB antenna on one end
+Antenna clearance (CRITICAL):
+  - ESP32-WROOM-32 has a metal-shielded module with antenna on one end
   - Keep that end of the board free of copper pours, traces, and components
-  - No ground plane under the antenna area
+  - No ground plane under or near the antenna area
+  - Violating this kills WiFi range
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECTION 6 — ENCLOSURE REFERENCE (from product renders)
+SECTION 6 — ENCLOSURE REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 The enclosure is a 3D-printed two-part box (lid + base):
@@ -265,9 +252,10 @@ Firmware file location:
   voice-ai-architecture/firmware/voice_ai_hardware/voice_ai_hardware.ino
 
 Flash using Arduino IDE with:
-  Board: ESP32C3 Dev Module
-  Upload Speed: 921600
-  USB CDC on Boot: Enabled
+  Board:            ESP32 Dev Module
+  Upload Speed:     921600
+  Flash Mode:       DIO
+  Partition Scheme: Default 4MB with spiffs
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 9 — CONTACT & QUESTIONS
