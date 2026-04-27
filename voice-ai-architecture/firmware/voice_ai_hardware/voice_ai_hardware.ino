@@ -241,7 +241,13 @@ void setupI2S() {
    BATTERY
    ───────────────────────────────────────── */
 uint8_t readBatteryPercent() {
-  return 0;  // ADC conflicts with WiFi on this core version — disabled
+  int raw    = analogRead(PIN_BAT_ADC);
+  float adcV = (raw / 4095.0f) * 3.3f;
+  float batV = adcV * 2.0f;  // undo 100k/100k voltage divider
+  float pct  = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  if (pct <   0.0f) pct =   0.0f;
+  return (uint8_t)pct;
 }
 
 /* ─────────────────────────────────────────

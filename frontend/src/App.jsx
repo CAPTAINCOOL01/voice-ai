@@ -2311,7 +2311,7 @@ export default function App() {
               </div>
             )}
             {/* Battery indicator — only shown when device is online and battery is known */}
-            {deviceOnline && deviceBattery !== null && deviceBattery > 0 && (() => {
+            {deviceOnline && deviceBattery !== null && (() => {
               const pct = deviceBattery;
               const color = pct > 50 ? "#4ade80" : pct > 20 ? "#fbbf24" : "#f87171";
               const bars  = Math.ceil(pct / 25);  // 0–4 filled bars
