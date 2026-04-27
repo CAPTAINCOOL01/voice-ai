@@ -31,6 +31,7 @@
 #define PIN_TOGGLE    4   // momentary button: one pin to GPIO4, other pin to GND. Press = start/stop.
 #define PIN_LED_STATUS  2
 #define PIN_LED_REC    15
+#define PIN_BAT_ADC    34   // battery voltage divider midpoint (100kΩ/100kΩ)
 
 /* ─────────────────────────────────────────
    AUDIO CONFIG
@@ -240,12 +241,7 @@ void setupI2S() {
    BATTERY
    ───────────────────────────────────────── */
 uint8_t readBatteryPercent() {
-  uint32_t mv = analogReadMilliVolts(PIN_BAT_ADC);
-  float batV  = (mv / 1000.0f) * 2.0f;  // undo voltage divider (100k/100k = 50%)
-  float pct   = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
-  if (pct > 100.0f) pct = 100.0f;
-  if (pct <   0.0f) pct =   0.0f;
-  return (uint8_t)pct;
+  return 0;  // ADC conflicts with WiFi on this core version — disabled
 }
 
 /* ─────────────────────────────────────────
