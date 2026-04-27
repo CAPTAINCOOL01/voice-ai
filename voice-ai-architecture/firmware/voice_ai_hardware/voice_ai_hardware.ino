@@ -237,13 +237,25 @@ void setupI2S() {
 }
 
 /* ─────────────────────────────────────────
+   BATTERY
+   ───────────────────────────────────────── */
+uint8_t readBatteryPercent() {
+  uint32_t mv = analogReadMilliVolts(PIN_BAT_ADC);
+  float batV  = (mv / 1000.0f) * 2.0f;  // undo voltage divider (100k/100k = 50%)
+  float pct   = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  if (pct <   0.0f) pct =   0.0f;
+  return (uint8_t)pct;
+}
+
+/* ─────────────────────────────────────────
    HEARTBEAT TASK
    ───────────────────────────────────────── */
 void sendStatus(const char* state) {
   if (WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client; client.setInsecure();
   if (!client.connect(BACKEND_HOST, BACKEND_PORT)) return;
-  String body = String("{\"status\":\"") + state + "\",\"battery\":0}";
+  String body = String("{\"status\":\"") + state + "\",\"battery\":" + String(readBatteryPercent()) + "}";
   client.printf("POST /device/heartbeat HTTP/1.0\r\n");
   client.printf("Host: %s\r\n", BACKEND_HOST);
   client.printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
@@ -267,7 +279,7 @@ void heartbeatTask(void* param) {
       if (!client->connect(BACKEND_HOST, BACKEND_PORT)) continue;
     }
     const char* state = recording ? "recording" : "online";
-    String body = String("{\"status\":\"") + state + "\",\"battery\":0}";
+    String body = String("{\"status\":\"") + state + "\",\"battery\":" + String(readBatteryPercent()) + "}";
     client->printf("POST /device/heartbeat HTTP/1.1\r\n");
     client->printf("Host: %s\r\n", BACKEND_HOST);
     client->printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
