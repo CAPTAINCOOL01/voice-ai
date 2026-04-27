@@ -1845,6 +1845,7 @@ export default function App() {
   const [selectMode, setSelectMode]   = useState(false);
   const [deviceOnline, setDeviceOnline] = useState(false);
   const [deviceLastSeen, setDeviceLastSeen] = useState(null);
+  const deviceRecordingRef = useRef(false);
   const [search, setSearch]           = useState("");
   const [analysingId, setAnalysingId] = useState(null);
   const [activeRec, setActiveRec]     = useState(null);
@@ -1865,7 +1866,7 @@ export default function App() {
   const timerRef    = useRef(null);
   const durationRef = useRef(0);
 
-  const fetchRecordings = useCallback(async (isRetry = false) => {  // eslint-disable-line
+  const fetchRecordings = useCallback(async (isRetry = false) => {
     try {
       setLoadingRecs(true);
       if (!isRetry) setFetchError(null);
@@ -1876,11 +1877,11 @@ export default function App() {
       setFetchError(null);
     } catch {
       if (!isRetry) setFetchError("waking");
-      // Only retry if not currently recording — avoid reload loop during recording
-      if (!deviceRecording) setTimeout(() => fetchRecordings(true), 5000);
+      // Use ref so this callback never needs to be recreated when recording state changes
+      if (!deviceRecordingRef.current) setTimeout(() => fetchRecordings(true), 5000);
     }
     finally { setLoadingRecs(false); }
-  }, [deviceRecording]); // eslint-disable-line
+  }, []); // eslint-disable-line
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
@@ -1902,10 +1903,11 @@ export default function App() {
 
     let prevState = null;
     function applyState(state) {
-      setDeviceOnline(state === "online" || state === "recording");
-      setDeviceRecording(state === "recording");
-      // When device finishes recording, refresh the list after a short delay
-      // (give the backend time to finish saving the file)
+      const isRecording = state === "recording";
+      deviceRecordingRef.current = isRecording;
+      setDeviceOnline(state === "online" || isRecording);
+      setDeviceRecording(isRecording);
+      // Only refresh when transitioning from recording → online/idle (not → offline)
       if (prevState === "recording" && (state === "online" || state === "idle")) {
         setTimeout(() => fetchRecordings(), 3000);
       }
