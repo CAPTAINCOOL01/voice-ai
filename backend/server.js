@@ -342,7 +342,7 @@ setInterval(() => {
   if (deviceState !== "online") return;
   const sinceLastSeen    = deviceLastSeen ? Date.now() - deviceLastSeen.getTime() : Infinity;
   const sinceRecordingEnd = recordingEndedAt ? Date.now() - recordingEndedAt : Infinity;
-  const timeout          = sinceRecordingEnd < 30000 ? 30000 : 20000;
+  const timeout          = sinceRecordingEnd < 30000 ? 30000 : 10000;
   if (sinceLastSeen > timeout) setDeviceState("offline");
 }, 500);
 
