@@ -240,14 +240,34 @@ void setupI2S() {
 /* ─────────────────────────────────────────
    BATTERY
    ───────────────────────────────────────── */
+static float batterySmoothed = -1.0f;  // -1 = not yet initialised
+
 uint8_t readBatteryPercent() {
-  int raw    = analogRead(PIN_BAT_ADC);
+  // Average 20 samples to reduce ADC noise
+  long sum = 0;
+  for (int i = 0; i < 20; i++) {
+    sum += analogRead(PIN_BAT_ADC);
+    delay(2);
+  }
+  float raw  = sum / 20.0f;
   float adcV = (raw / 4095.0f) * 3.3f;
-  float batV = adcV * 2.0f;  // undo 100k/100k voltage divider
-  float pct  = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  float batV = adcV * 2.0f;  // undo 100k/100k divider
+
+  // Reject readings outside possible LiPo range (2.5V–4.3V)
+  // — catches floating pin noise
+  if (batV < 2.5f || batV > 4.4f) {
+    return batterySmoothed < 0 ? 0 : (uint8_t)batterySmoothed;
+  }
+
+  float pct = (batV - 3.0f) / (4.2f - 3.0f) * 100.0f;
   if (pct > 100.0f) pct = 100.0f;
   if (pct <   0.0f) pct =   0.0f;
-  return (uint8_t)pct;
+
+  // Exponential moving average — smooths out spike-to-spike jitter
+  if (batterySmoothed < 0) batterySmoothed = pct;
+  else batterySmoothed = 0.8f * batterySmoothed + 0.2f * pct;
+
+  return (uint8_t)batterySmoothed;
 }
 
 /* ─────────────────────────────────────────
