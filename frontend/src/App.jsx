@@ -2084,59 +2084,114 @@ export default function App() {
     };
 
     try {
-      // Step 1: get a presigned PUT URL from the backend
+      const CHUNK_SIZE    = 20 * 1024 * 1024; // 20 MB — safely under Render's 25 MB proxy limit
+      const useChunks     = file.size > CHUNK_SIZE;
+      const sessionId     = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const safeFilename  = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const totalChunks   = useChunks ? Math.ceil(file.size / CHUNK_SIZE) : 1;
+
       setFileUploadStage("uploading");
-      setFileUploadProgress(15);
-      setFileUploadETA("preparing…");
-      const presignRes = await authFetch(
-        `${API}/upload/presign?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type || "audio/wav")}`
-      );
-      if (!presignRes.ok) throw new Error("Could not get upload URL");
-      const { url, key } = await presignRes.json();
+      setFileUploadProgress(10);
 
-      // Step 2: PUT the file directly to R2 — bypasses Render entirely, no size limit
-      setFileUploadProgress(20);
-      setFileUploadETA("uploading…");
-      await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", url);
-        xhr.setRequestHeader("Content-Type", file.type || "audio/wav");
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 55);
-            setFileUploadProgress(20 + pct);
-            const elapsed = (Date.now() - startTime) / 1000;
-            const rate    = e.loaded / elapsed;
-            const remaining = rate > 0 ? Math.round((e.total - e.loaded) / rate) : null;
-            setFileUploadETA(remaining !== null ? fmtETA(remaining) : "uploading…");
-          }
-        };
-        xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`R2 upload failed: ${xhr.status}`));
-        xhr.onerror = () => reject(new Error("Network error during upload"));
-        xhr.send(file);
-      });
+      if (useChunks) {
+        // ── Chunked path: split file and POST each chunk through Render ──
+        setFileUploadETA(`Uploading chunk 1 of ${totalChunks}…`);
+        for (let i = 0; i < totalChunks; i++) {
+          const blob  = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const form  = new FormData();
+          form.append("chunk",       blob, safeFilename);
+          form.append("sessionId",   sessionId);
+          form.append("chunkIndex",  String(i));
+          form.append("totalChunks", String(totalChunks));
 
-      // Step 4: tell backend to process the file from R2
-      setFileUploadStage("processing");
-      setFileUploadProgress(65);
-      let elapsed = 0;
-      const processingTimer = setInterval(() => {
-        elapsed += 1;
-        const mins = Math.floor(elapsed / 60);
-        const secs = elapsed % 60;
-        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-        setFileUploadETA(`Processing… ${timeStr}`);
-        setFileUploadProgress(prev => Math.min(94, prev + 0.15));
-      }, 1000);
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", `${API}/upload/chunk`);
+            const token = getToken();
+            if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const overall = ((i + e.loaded / e.total) / totalChunks) * 55;
+                setFileUploadProgress(10 + Math.round(overall));
+                const elapsed  = (Date.now() - startTime) / 1000;
+                const byteDone = i * CHUNK_SIZE + e.loaded;
+                const rate     = byteDone / elapsed;
+                const rem      = rate > 0 ? Math.round((file.size - byteDone) / rate) : null;
+                setFileUploadETA(`Chunk ${i + 1}/${totalChunks}${rem !== null ? " · " + fmtETA(rem) : ""}`);
+              }
+            };
+            xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`Chunk ${i} failed: ${xhr.status} ${xhr.responseText}`));
+            xhr.onerror = () => reject(new Error(`Network error on chunk ${i}`));
+            xhr.send(form);
+          });
+        }
 
-      const processRes = await authFetch(`${API}/upload/process`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, duration: 0 }),
-      });
-      clearInterval(processingTimer);
-      const data = await processRes.json();
-      if (!processRes.ok) throw new Error(data.error || "Processing failed");
+        // ── Finalize: merge chunks and kick off transcription ──
+        setFileUploadStage("processing");
+        setFileUploadProgress(65);
+        let elapsed = 0;
+        const processingTimer = setInterval(() => {
+          elapsed++;
+          const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+          setFileUploadETA(`Processing… ${mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}`);
+          setFileUploadProgress(prev => Math.min(94, prev + 0.15));
+        }, 1000);
+
+        const finalRes = await authFetch(`${API}/upload/finalize`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ sessionId, filename: safeFilename, totalChunks, duration: 0 }),
+        });
+        clearInterval(processingTimer);
+        const finalData = await finalRes.json();
+        if (!finalRes.ok) throw new Error(finalData.error || "Finalize failed");
+
+      } else {
+        // ── Small file path: presigned PUT directly to R2 ──
+        setFileUploadETA("preparing…");
+        const presignRes = await authFetch(
+          `${API}/upload/presign?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type || "audio/wav")}`
+        );
+        if (!presignRes.ok) throw new Error("Could not get upload URL");
+        const { url, key } = await presignRes.json();
+
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", url);
+          xhr.setRequestHeader("Content-Type", file.type || "audio/wav");
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              setFileUploadProgress(10 + Math.round((e.loaded / e.total) * 55));
+              const elapsed    = (Date.now() - startTime) / 1000;
+              const rate       = e.loaded / elapsed;
+              const remaining  = rate > 0 ? Math.round((e.total - e.loaded) / rate) : null;
+              setFileUploadETA(remaining !== null ? fmtETA(remaining) : "uploading…");
+            }
+          };
+          xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
+          xhr.onerror = () => reject(new Error("Network error during upload"));
+          xhr.send(file);
+        });
+
+        setFileUploadStage("processing");
+        setFileUploadProgress(65);
+        let elapsed = 0;
+        const processingTimer = setInterval(() => {
+          elapsed++;
+          const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+          setFileUploadETA(`Processing… ${mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}`);
+          setFileUploadProgress(prev => Math.min(94, prev + 0.15));
+        }, 1000);
+
+        const processRes = await authFetch(`${API}/upload/process`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ key, duration: 0 }),
+        });
+        clearInterval(processingTimer);
+        const data = await processRes.json();
+        if (!processRes.ok) throw new Error(data.error || "Processing failed");
+      }
 
       setFileUploadProgress(100);
       setFileUploadETA(null);
