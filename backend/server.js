@@ -325,6 +325,7 @@ let deviceState        = "offline";
 let deviceLastSeen     = null;
 let recordingEndedAt   = null;
 let deviceBattery      = null;   // 0-100 percentage, null = unknown
+let deviceTemperature  = null;   // °C, null = unknown
 
 function setDeviceState(newState) {
   if (deviceState === newState) return;
@@ -332,7 +333,7 @@ function setDeviceState(newState) {
     recordingEndedAt = Date.now();
   }
   deviceState = newState;
-  broadcast({ state: newState, lastSeen: deviceLastSeen, battery: deviceBattery });
+  broadcast({ state: newState, lastSeen: deviceLastSeen, battery: deviceBattery, temperature: deviceTemperature });
   console.log(`[DEVICE] State → ${newState}`);
 }
 
@@ -357,21 +358,26 @@ app.post("/device/heartbeat", auth, (req, res) => {
     deviceBattery = Math.max(0, Math.min(100, Number(battery)));
   }
 
+  const temp = req.body?.temperature;
+  if (temp !== undefined && temp !== null && isFinite(Number(temp))) {
+    deviceTemperature = Math.round(Number(temp) * 10) / 10;
+  }
+
   if      (status === "recording")                   setDeviceState("recording");
   else if (status === "idle" || status === "online") setDeviceState("online");
   else if (legacy === true)                          setDeviceState("recording");
   else if (legacy === false)                         setDeviceState("online");
   else                                               setDeviceState("online");
 
-  // Always broadcast latest battery even if state didn't change
-  broadcast({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery });
+  // Always broadcast latest battery/temperature even if state didn't change
+  broadcast({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery, temperature: deviceTemperature });
 
   res.json({ status: "ok" });
 });
 
 // GET /device/status — REST fallback for initial page load
 app.get("/device/status", auth, (req, res) => {
-  res.json({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery });
+  res.json({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery, temperature: deviceTemperature });
 });
 
 // ── OAuth helper — issue JWT and redirect to frontend ────
@@ -1120,7 +1126,7 @@ wss.on("connection", (ws, req) => {
     ws.close(1008, "Unauthorized"); return;
   }
   // Send current state immediately on connect
-  ws.send(JSON.stringify({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery }));
+  ws.send(JSON.stringify({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery, temperature: deviceTemperature }));
   ws.on("error", () => {}); // suppress unhandled errors
 });
 

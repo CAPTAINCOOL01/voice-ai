@@ -1885,8 +1885,9 @@ export default function App() {
 
   useEffect(()=>{ fetchRecordings(); }, [fetchRecordings]);
 
-  const [deviceRecording, setDeviceRecording] = useState(false);
-  const [deviceBattery,  setDeviceBattery]   = useState(null);
+  const [deviceRecording,   setDeviceRecording]   = useState(false);
+  const [deviceBattery,     setDeviceBattery]     = useState(null);
+  const [deviceTemperature, setDeviceTemperature] = useState(null);
   const [currentPage, setCurrentPage] = useState("home");
   const [projects, setProjects] = useState([]);
 
@@ -1924,7 +1925,8 @@ export default function App() {
           const d = await r.json();
           applyState(d.state);
           setDeviceLastSeen(d.lastSeen);
-          if (d.battery !== undefined && d.battery !== null) setDeviceBattery(d.battery);
+          if (d.battery     !== undefined && d.battery     !== null) setDeviceBattery(d.battery);
+          if (d.temperature !== undefined && d.temperature !== null) setDeviceTemperature(d.temperature);
         } catch {}
       };
 
@@ -1932,8 +1934,9 @@ export default function App() {
         try {
           const d = JSON.parse(e.data);
           applyState(d.state);
-          if (d.lastSeen) setDeviceLastSeen(d.lastSeen);
-          if (d.battery !== undefined && d.battery !== null) setDeviceBattery(d.battery);
+          if (d.lastSeen)                                             setDeviceLastSeen(d.lastSeen);
+          if (d.battery     !== undefined && d.battery     !== null) setDeviceBattery(d.battery);
+          if (d.temperature !== undefined && d.temperature !== null) setDeviceTemperature(d.temperature);
         } catch {}
       };
 
@@ -2331,6 +2334,30 @@ export default function App() {
                     ))}
                   </svg>
                   {pct}%
+                </div>
+              );
+            })()}
+            {/* Temperature indicator — only shown when device is online and temperature is known */}
+            {deviceOnline && deviceTemperature !== null && (() => {
+              // ESP32 die reads ~12°C above ambient under WiFi+audio load
+              const ambient = Math.round((deviceTemperature - 12) * 10) / 10;
+              const color   = ambient < 40 ? "#4ade80" : ambient < 52 ? "#fbbf24" : "#f87171";
+              const label   = ambient < 40 ? "Normal" : ambient < 52 ? "Warm" : "Too hot";
+              const fillH   = Math.min(6, Math.max(1, Math.round((ambient - 20) / 6)));
+              return (
+                <div title={`Est. box ambient: ${ambient}°C (die: ${deviceTemperature}°C) — ${label}`} style={{
+                  display:"flex", alignItems:"center", gap:5, fontSize:11,
+                  padding:"4px 10px", borderRadius:999, cursor:"default",
+                  border:`1px solid ${ambient >= 52 ? "rgba(248,113,113,0.3)" : ambient >= 40 ? "rgba(251,191,36,0.3)" : "#27272a"}`,
+                  background: ambient >= 52 ? "rgba(248,113,113,0.08)" : ambient >= 40 ? "rgba(251,191,36,0.06)" : "transparent",
+                  color,
+                }}>
+                  <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+                    <rect x="3.5" y="0.5" width="3" height="9" rx="1.5" stroke={color} strokeWidth="1.1"/>
+                    <circle cx="5" cy="11.5" r="2" fill={color}/>
+                    <rect x="4" y={9 - fillH} width="2" height={fillH} rx="0.8" fill={color}/>
+                  </svg>
+                  ~{ambient}°C
                 </div>
               );
             })()}

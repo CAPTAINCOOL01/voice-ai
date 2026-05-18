@@ -301,7 +301,9 @@ void heartbeatTask(void* param) {
       if (!client->connect(BACKEND_HOST, BACKEND_PORT)) continue;
     }
     const char* state = recording ? "recording" : "online";
-    String body = String("{\"status\":\"") + state + "\",\"battery\":" + String(readBatteryPercent()) + "}";
+    float boxTemp = temperatureRead();  // ESP32 die temperature in °C
+    String body = String("{\"status\":\"") + state + "\",\"battery\":" + String(readBatteryPercent())
+                + ",\"temperature\":" + String(boxTemp, 1) + "}";
     client->printf("POST /device/heartbeat HTTP/1.1\r\n");
     client->printf("Host: %s\r\n", BACKEND_HOST);
     client->printf("X-Api-Key: %s\r\n", ESP32_API_KEY);
