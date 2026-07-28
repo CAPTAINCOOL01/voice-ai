@@ -10,6 +10,7 @@ const crypto         = require("crypto");
 const session        = require("express-session");
 const passport       = require("passport");
 const OpenAI         = require("openai");
+const Anthropic      = require("@anthropic-ai/sdk");
 const path           = require("path");
 const fs             = require("fs");
 const os             = require("os");
@@ -32,7 +33,19 @@ const BUCKET     = process.env.R2_BUCKET;
 const R2_PUB     = process.env.R2_PUBLIC_URL;
 
 // ── Services ─────────────────────────────────────────────
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const NOTES_MODEL = "claude-sonnet-4-6";
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn("⚠️  ANTHROPIC_API_KEY not set — note generation will fail until it is configured.");
+}
+
+// Sarvam STT — auto-detect language across English/Hindi/Indic
+const SARVAM_STT_URL   = "https://api.sarvam.ai/speech-to-text";
+const SARVAM_STT_MODEL = "saarika:v2.5";
+if (!process.env.SARVAM_API_KEY) {
+  console.warn("⚠️  SARVAM_API_KEY not set — transcription will fail until it is configured.");
+}
 
 const s3 = new S3Client({
   region:   "auto",
@@ -198,17 +211,37 @@ async function auth(req, res, next) {
 }
 
 // ── AI helpers ────────────────────────────────────────────
+// Returns { text } so call sites stay unchanged.
 async function transcribeAudio(filePath) {
-  return openai.audio.transcriptions.create({
-    file:        fs.createReadStream(filePath),
-    model:       "whisper-1",
-    language:    "en",
-    temperature: 0,
-    prompt:      "This is a personal voice memo about work tasks, meetings, ideas, projects, and to-do items. The speaker may mention names, deadlines, technical terms, or product names. Transcribe every word accurately, including incomplete sentences.",
+  if (!process.env.SARVAM_API_KEY) throw new Error("SARVAM_API_KEY not set on server");
+
+  const fileBuffer = fs.readFileSync(filePath);
+  const lower      = filePath.toLowerCase();
+  const mimeType   = lower.endsWith(".mp3") ? "audio/mpeg"
+                   : lower.endsWith(".m4a") ? "audio/mp4"
+                   : "audio/wav";
+
+  const form = new FormData();
+  form.append("file", new Blob([fileBuffer], { type: mimeType }), path.basename(filePath));
+  form.append("model", SARVAM_STT_MODEL);
+  form.append("language_code", "unknown");
+
+  const resp = await fetch(SARVAM_STT_URL, {
+    method:  "POST",
+    headers: { "api-subscription-key": process.env.SARVAM_API_KEY },
+    body:    form,
   });
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Sarvam STT ${resp.status}: ${errBody.slice(0, 300)}`);
+  }
+  const data = await resp.json();
+  return { text: data.transcript || "", language: data.language_code || null };
 }
 
 async function generateNotes(text) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set on server");
+
   const SYSTEM_PROMPT = `You are a deterministic meeting intelligence system and note-taker.
 Your job is to extract structured, work-related information from voice recording transcripts.
 The transcript may contain filler words, informal speech, or background noise — clean it up and extract the full meaning.
@@ -229,15 +262,7 @@ Do NOT extract past regrets ("we should have done that") or pure hypotheticals.
 ## PRIORITY IN SUMMARY
 When writing Next Steps, order by urgency: items with deadlines or urgency words first.`;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const ai = await openai.chat.completions.create({
-        model: "gpt-4o",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Analyse this voice recording transcript and return a JSON object with EXACTLY these fields:
+  const USER_PROMPT = `Analyse this voice recording transcript and return a JSON object with EXACTLY these fields:
 
 "title": string — max 8 words, specific and descriptive (e.g. "Weekly Team Sync Follow-Up Tasks")
 
@@ -267,10 +292,24 @@ When writing Next Steps, order by urgency: items with deadlines or urgency words
   - Deduplicate — same task mentioned twice appears once
   - Return [] if nothing actionable
 
-Transcript: ${text}` },
+Transcript: ${text}`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      // Prefill assistant message with `{` — forces Claude to start emitting valid JSON
+      // and drops the risk of leading prose, backtick fences, or code-block wrappers.
+      const msg = await anthropic.messages.create({
+        model:       NOTES_MODEL,
+        max_tokens:  2048,
+        temperature: 0,
+        system:      SYSTEM_PROMPT,
+        messages: [
+          { role: "user",      content: USER_PROMPT },
+          { role: "assistant", content: "{" },
         ],
       });
-      return JSON.parse(ai.choices[0].message.content);
+      const body = msg.content.map(b => b.type === "text" ? b.text : "").join("");
+      return JSON.parse("{" + body);
     } catch (e) {
       if (attempt === 1) throw e;
     }
@@ -535,8 +574,8 @@ app.delete("/projects/:id/tasks/:taskId", auth, async (req, res) => {
 //  RECORDING ROUTES
 // ════════════════════════════════════════════════════════
 
-// Compress audio to MP3 32kbps mono — ~14MB/hr, well under Whisper's 25MB limit
-function compressForWhisper(inputPath) {
+// Compress audio to MP3 32kbps mono — ~14MB/hr, under Sarvam STT's 30MB / 30-min limit
+function compressForSTT(inputPath) {
   const outputPath = inputPath.replace(/\.[^.]+$/, "_compressed.mp3");
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
@@ -554,18 +593,18 @@ function compressForWhisper(inputPath) {
 
 // ── Shared processing pipeline (used by /upload and /upload/finalize) ──
 async function processAudioFile(localPath, filename, userId, duration) {
-  const WHISPER_LIMIT = 24 * 1024 * 1024;
-  let pathForWhisper = localPath;
+  const STT_LIMIT = 24 * 1024 * 1024;
+  let pathForSTT = localPath;
   let compressed = null;
-  if (fs.statSync(localPath).size > WHISPER_LIMIT) {
-    console.log(`🗜️ Compressing ${(fs.statSync(localPath).size/1024/1024).toFixed(1)}MB for Whisper…`);
-    compressed = await compressForWhisper(localPath);
-    pathForWhisper = compressed;
+  if (fs.statSync(localPath).size > STT_LIMIT) {
+    console.log(`🗜️ Compressing ${(fs.statSync(localPath).size/1024/1024).toFixed(1)}MB for STT…`);
+    compressed = await compressForSTT(localPath);
+    pathForSTT = compressed;
     console.log(`✅ Compressed to ${(fs.statSync(compressed).size/1024/1024).toFixed(1)}MB`);
   }
   let transcription;
   try {
-    transcription = await transcribeAudio(pathForWhisper);
+    transcription = await transcribeAudio(pathForSTT);
   } finally {
     if (compressed && fs.existsSync(compressed)) fs.unlinkSync(compressed);
   }
@@ -685,7 +724,7 @@ app.get("/upload/presign", auth, async (req, res) => {
 
 // ── POST /upload/process — process a file already in R2 ───
 app.post("/upload/process", auth, async (req, res) => {
-  req.setTimeout(3600000); // 60 min — large files need ffmpeg + Whisper time
+  req.setTimeout(3600000); // 60 min — large files need ffmpeg + STT time
   const { key, duration } = req.body;
   if (!key) return res.status(400).json({ error: "key required" });
   const tmpPath = path.join(os.tmpdir(), `${Date.now()}_${path.basename(key)}`);
@@ -693,15 +732,15 @@ app.post("/upload/process", auth, async (req, res) => {
     await downloadFromR2(key, tmpPath);
     console.log(`📥 Downloaded ${key}: ${(fs.statSync(tmpPath).size/1024/1024).toFixed(1)}MB`);
 
-    // Compress if over Whisper's 25MB limit
-    const WHISPER_LIMIT = 24 * 1024 * 1024;
-    let pathForWhisper = tmpPath;
+    // Compress if over Sarvam's 30MB limit (kept conservative at 24MB)
+    const STT_LIMIT = 24 * 1024 * 1024;
+    let pathForSTT = tmpPath;
     let compressed = null;
-    if (fs.statSync(tmpPath).size > WHISPER_LIMIT) {
-      console.log(`🗜️ Compressing for Whisper…`);
+    if (fs.statSync(tmpPath).size > STT_LIMIT) {
+      console.log(`🗜️ Compressing for STT…`);
       try {
-        compressed = await compressForWhisper(tmpPath);
-        pathForWhisper = compressed;
+        compressed = await compressForSTT(tmpPath);
+        pathForSTT = compressed;
         console.log(`✅ Compressed to ${(fs.statSync(compressed).size/1024/1024).toFixed(1)}MB`);
       } catch (compErr) {
         console.error("❌ ffmpeg compression failed:", compErr.message);
@@ -711,7 +750,7 @@ app.post("/upload/process", auth, async (req, res) => {
 
     let transcription;
     try {
-      transcription = await transcribeAudio(pathForWhisper);
+      transcription = await transcribeAudio(pathForSTT);
     } finally {
       if (compressed && fs.existsSync(compressed)) fs.unlinkSync(compressed);
     }
@@ -771,7 +810,7 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
 
     if (text && text.trim().length > 0) {
-      console.log(`✅ Whisper (${text.length} chars): "${text.substring(0, 80)}..."`);
+      console.log(`✅ Sarvam (${text.length} chars, lang=${transcription.language || "?"}): "${text.substring(0, 80)}..."`);
       const parsed = await generateNotes(text);
       await Recording.findByIdAndUpdate(recording._id, {
         transcript:  text,
@@ -783,7 +822,7 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
       console.log(`✅ Auto-analysis complete for ${recording._id}`);
     } else {
       if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-      console.warn(`⚠️  Whisper returned empty transcript for ${filename}`);
+      console.warn(`⚠️  Sarvam returned empty transcript for ${filename}`);
     }
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
@@ -810,21 +849,21 @@ app.post("/recordings/:id/analyse", auth, async (req, res) => {
       return res.status(400).json({ error: `Audio file too small (${dlSize} bytes) — recording may be empty` });
     }
 
-    // Step 2: Check OpenAI key
-    if (!process.env.OPENAI_API_KEY) {
+    // Step 2: Check STT key
+    if (!process.env.SARVAM_API_KEY) {
       fs.unlinkSync(tmpPath);
-      return res.status(500).json({ error: "OPENAI_API_KEY not set on server" });
+      return res.status(500).json({ error: "SARVAM_API_KEY not set on server" });
     }
 
-    // Step 3: Transcribe with Whisper
-    console.log(`🎙️  Sending ${dlSize} bytes to Whisper...`);
+    // Step 3: Transcribe with Sarvam
+    console.log(`🎙️  Sending ${dlSize} bytes to Sarvam...`);
     const transcription = await transcribeAudio(tmpPath);
     const text = transcription.text;
     if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-    console.log(`✅ Whisper transcript (${text.length} chars): "${text.substring(0, 80)}..."`);
+    console.log(`✅ Sarvam transcript (${text.length} chars, lang=${transcription.language || "?"}): "${text.substring(0, 80)}..."`);
 
     if (!text || text.trim().length === 0) {
-      return res.status(400).json({ error: "Whisper returned empty transcript — audio may be silence or noise" });
+      return res.status(400).json({ error: "Sarvam returned empty transcript — audio may be silence or noise" });
     }
 
     // Step 4: Generate notes
@@ -888,6 +927,7 @@ app.get("/debug/recording/:id", auth, async (req, res) => {
           channels,
         },
         openaiKeySet: !!process.env.OPENAI_API_KEY,
+        sarvamKeySet: !!process.env.SARVAM_API_KEY,
       });
     } catch (e) {
       r2Error = e.message;
@@ -895,6 +935,7 @@ app.get("/debug/recording/:id", auth, async (req, res) => {
         db: { id: recording._id, filename: recording.filename, duration: recording.duration },
         r2: { exists: false, error: r2Error },
         openaiKeySet: !!process.env.OPENAI_API_KEY,
+        sarvamKeySet: !!process.env.SARVAM_API_KEY,
       });
     }
   } catch (err) {
