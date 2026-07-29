@@ -34,6 +34,9 @@ const wallet = require("../billing/wallet");
 
 const sarvamSync           = require("../providers/sarvamSync");
 const claudeSonnetControl  = require("../providers/claudeSonnetControl");
+const claudeOpusVisuals    = require("../providers/claudeOpusVisuals");
+const visualSpec           = require("../visuals/spec");
+const { ReportVisual }     = require("../../models");
 // Premium + normal providers wired in later steps. Referenced lazily to avoid
 // crash-on-load when their env vars aren't set yet.
 
@@ -197,6 +200,42 @@ async function _run({ jobId, audioPath, audioSeconds, mode, userId, reservationK
 
     if (!reportResult.metrics.success) throw new Error(`Report failed: ${reportResult.metrics.errorCode}`);
 
+    // 2b. Visual specs — generated on premium (up to 5) and normal (up to 1).
+    // Wraps a second Opus call. If it fails or produces nothing usable we
+    // proceed without visuals — the written report must still be delivered.
+    let visualDocs = [];
+    try {
+      const tier = mode === "premium" ? "premium" : "normal";
+      const { visuals: rawVisuals, metrics: vmetrics } = await claudeOpusVisuals.generateVisualSpecs({
+        report:       reportResult.reportData,
+        segments:     sttResult.segments,
+        tier,
+        pipelineTag:  mode,
+        audioSeconds,
+      });
+      await recordModelRun(job.recordingId, job._id, "visual_spec", vmetrics);
+
+      const { valid, invalid } = visualSpec.filterAndAnnotate(rawVisuals);
+      if (invalid.length) console.warn(`⚠️  ${invalid.length} visual specs rejected for ${job.recordingId}`);
+
+      for (const v of valid) {
+        const doc = await ReportVisual.create({
+          recordingId:      job.recordingId,
+          type:             v.type,
+          title:            v.title,
+          reason:           v.reason || "",
+          renderer:         v.renderer,
+          spec:             v.spec,
+          evidence:         v.evidence || [],
+          validationErrors: [],
+          pipelineTag:      tier,
+        });
+        visualDocs.push(doc);
+      }
+    } catch (visErr) {
+      console.warn(`⚠️  Visual generation failed for ${job.recordingId} — continuing without visuals: ${visErr.message}`);
+    }
+
     // 3. Persist to Recording — legacy fields mirrored for existing UI.
     const walletType = walletForMode(mode);
     await Recording.updateOne(
@@ -213,6 +252,7 @@ async function _run({ jobId, audioPath, audioSeconds, mode, userId, reservationK
           speakers:          sttResult.speakers,
           reportType:        mode === "premium" ? "premium" : "normal",
           reportData:        reportResult.reportData,
+          visuals:           visualDocs.map(v => v._id),
           title:             reportResult.title || undefined,
           summary:           reportResult.summary || "",
           tags:              reportResult.tags,
