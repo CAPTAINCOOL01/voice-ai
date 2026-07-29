@@ -350,6 +350,8 @@ setInterval(() => {
 }, 500);
 
 // POST /device/heartbeat — called by ESP32 every 1.5s (pauses during recording)
+const trial = require("./services/billing/trial");
+
 app.post("/device/heartbeat", auth, (req, res) => {
   deviceLastSeen = new Date();
   const status   = req.body?.status;
@@ -375,6 +377,15 @@ app.post("/device/heartbeat", auth, (req, res) => {
   broadcast({ state: deviceState, lastSeen: deviceLastSeen, battery: deviceBattery, temperature: deviceTemperature });
 
   res.json({ status: "ok" });
+
+  // Fire-and-forget trial activation on first-ever contact from this device.
+  // Deterministic idempotency keys make this safe on every heartbeat.
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey && req.user?._id) {
+    trial.activateDeviceTrial({ apiKey, userId: req.user._id })
+      .then(r => { if (r.activated) console.log(`🎁 Trial activated for device (user=${req.user.username})`); })
+      .catch(err => console.error("❌ Trial activation:", err.message));
+  }
 });
 
 // GET /device/status — REST fallback for initial page load
@@ -785,6 +796,14 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
   // Respond immediately so ESP32 doesn't hit Render's 30s idle timeout
   // while we wait for R2 upload + MongoDB save
   res.json({ status: "ok" });
+
+  // Fire-and-forget trial activation for first-ever upload from this device.
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey && req.user?._id) {
+    trial.activateDeviceTrial({ apiKey, userId: req.user._id })
+      .then(r => { if (r.activated) console.log(`🎁 Trial activated on first upload (user=${req.user.username})`); })
+      .catch(err => console.error("❌ Trial activation:", err.message));
+  }
 
   // Background processing — client already got 200, ESP32 won't wait
   try {
