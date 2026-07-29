@@ -204,8 +204,10 @@ async function _run({ jobId, audioPath, audioSeconds, mode, userId, reservationK
       {
         $set: {
           rawTranscript:     sttResult.rawTranscript,
-          cleanedTranscript: sttResult.cleanedTranscript,
-          transcript:        sttResult.cleanedTranscript,   // legacy mirror
+          // Report provider may return an improved cleanedTranscript (Opus does inline
+          // cleaning). Fall back to STT's cleanedTranscript if the report didn't touch it.
+          cleanedTranscript: reportResult.cleanedTranscript || sttResult.cleanedTranscript,
+          transcript:        reportResult.cleanedTranscript || sttResult.cleanedTranscript,   // legacy mirror
           language:          sttResult.language,
           detectedLanguages: sttResult.detectedLanguages,
           speakers:          sttResult.speakers,
