@@ -787,10 +787,16 @@ app.post("/upload/process", auth, async (req, res) => {
 });
 
 // ── POST /save — audio only, no AI ───────────────────────
+const orchestrator = require("./services/processing/orchestrator");
+
 app.post("/save", auth, upload.single("audio"), async (req, res) => {
   const { path: localPath, filename } = req.file;
   const fileSizeBytes = fs.statSync(localPath).size;
-  const duration = parseFloat(req.body.duration) || 0;
+  let duration = parseFloat(req.body.duration) || 0;
+  // Fallback: estimate from WAV size (16 kHz mono 16-bit → 32000 bytes/sec).
+  if (!duration && filename.toLowerCase().endsWith(".wav")) {
+    duration = Math.max(1, Math.floor((fileSizeBytes - 44) / 32000));
+  }
   console.log(`📥 /save received: ${filename}, size=${fileSizeBytes} bytes, duration=${duration}s`);
 
   // Respond immediately so ESP32 doesn't hit Render's 30s idle timeout
@@ -810,41 +816,80 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
     console.log(`☁️  Uploaded to R2: ${filename}`);
 
-    // Save immediately with placeholder title so recording appears in UI right away
     const title = `Recording – ${new Date().toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}`;
     const recording = await Recording.create({
       userId: req.user._id,
-      filename, fileUrl, transcript: "", title,
+      filename, fileUrl,
+      transcript: "", title,
       summary: "", tags: [], actionItems: [], duration,
+      processingStatus: "pending",
     });
     console.log(`✅ Saved to DB: ${filename} (id=${recording._id})`);
 
-    // Auto-analyse: transcribe + generate notes without user needing to click
-    console.log(`🎙️  Auto-analysing ${filename}...`);
-    const transcription = await transcribeAudio(localPath);
-    const text = transcription.text;
-    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+    // Legacy path — kept behind a flag as a safety net during rollout.
+    if (process.env.LEGACY_INLINE_PROCESSING === "true") {
+      return _legacyInlineProcess(recording, localPath, filename, title);
+    }
 
-    if (text && text.trim().length > 0) {
-      console.log(`✅ Sarvam (${text.length} chars, lang=${transcription.language || "?"}): "${text.substring(0, 80)}..."`);
-      const parsed = await generateNotes(text);
-      await Recording.findByIdAndUpdate(recording._id, {
-        transcript:  text,
-        title:       parsed.title       || title,
-        summary:     parsed.summary     || "",
-        tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
-        actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
+    // New path — route through orchestrator with wallet reservation.
+    const mode = process.env.DEFAULT_PROCESSING_MODE || "normal";
+    try {
+      const { jobId, minutes } = await orchestrator.enqueue({
+        recording,
+        userId:       req.user._id,
+        mode,
+        audioPath:    null,        // orchestrator downloads from R2 (uploadToR2 already deleted local)
+        audioSeconds: duration,
       });
-      console.log(`✅ Auto-analysis complete for ${recording._id}`);
-    } else {
-      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-      console.warn(`⚠️  Sarvam returned empty transcript for ${filename}`);
+      console.log(`🎯 Enqueued ${mode} pipeline for ${recording._id} (job=${jobId}, reserved=${minutes}m)`);
+    } catch (err) {
+      if (err.code === "INSUFFICIENT_FUNDS") {
+        await Recording.updateOne(
+          { _id: recording._id },
+          { $set: { processingStatus: "blocked_by_quota", blockedReason: err.message } }
+        );
+        console.warn(`🚫 Blocked by quota: recording ${recording._id} — ${err.message}`);
+      } else {
+        console.error(`❌ Orchestrator enqueue failed for ${recording._id}:`, err);
+        await Recording.updateOne(
+          { _id: recording._id },
+          { $set: { processingStatus: "failed", blockedReason: err.message.slice(0, 200) } }
+        );
+      }
     }
   } catch (err) {
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-    console.error("❌ Save/analyse (background):", err);
+    console.error("❌ /save background:", err);
   }
 });
+
+// Legacy inline path — retained under LEGACY_INLINE_PROCESSING flag for rollback.
+async function _legacyInlineProcess(recording, localPath, filename, title) {
+  try {
+    console.log(`🎙️  Legacy auto-analysing ${filename}...`);
+    const transcription = await transcribeAudio(localPath);
+    const text = transcription.text;
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+    if (!text || !text.trim().length) {
+      console.warn(`⚠️  Sarvam returned empty transcript for ${filename}`);
+      return;
+    }
+    console.log(`✅ Sarvam (${text.length} chars, lang=${transcription.language || "?"})`);
+    const parsed = await generateNotes(text);
+    await Recording.findByIdAndUpdate(recording._id, {
+      transcript:  text,
+      title:       parsed.title       || title,
+      summary:     parsed.summary     || "",
+      tags:        Array.isArray(parsed.tags)        ? parsed.tags        : [],
+      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
+      processingStatus: "completed",
+    });
+    console.log(`✅ Legacy analysis complete for ${recording._id}`);
+  } catch (err) {
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+    console.error("❌ Legacy /save analysis:", err);
+  }
+}
 
 // ── POST /recordings/:id/analyse ─────────────────────────
 app.post("/recordings/:id/analyse", auth, async (req, res) => {
