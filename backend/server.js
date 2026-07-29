@@ -467,6 +467,40 @@ app.post("/api/user/api-key", auth, async (req, res) => {
   res.json({ apiKey: newKey });
 });
 
+// ────────────────────────────────────────────────────────
+// WALLET + USAGE LEDGER  (step 2 of billing rebuild)
+// TODO: extract to routes/usage.js when routes/ is introduced.
+// ────────────────────────────────────────────────────────
+const wallet = require("./services/billing/wallet");
+const ledger = require("./services/billing/ledger");
+
+// GET /api/wallets — current user's Normal + Premium AI Minute balances
+app.get("/api/wallets", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  try {
+    const balances = await wallet.getBalance(req.user._id);
+    res.json(balances);
+  } catch (err) {
+    console.error("❌ /api/wallets:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/usage/ledger?limit=&before=
+app.get("/api/usage/ledger", auth, async (req, res) => {
+  if (!req.user) return res.status(404).json({ error: "User not found" });
+  try {
+    const rows = await ledger.listForUser(req.user._id, {
+      limit:  Number(req.query.limit) || 50,
+      before: req.query.before,
+    });
+    res.json({ entries: rows });
+  } catch (err) {
+    console.error("❌ /api/usage/ledger:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── DELETE /api/user/data — delete all recordings ─────────
 app.delete("/api/user/data", auth, async (req, res) => {
   try {
