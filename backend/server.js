@@ -891,6 +891,93 @@ async function _legacyInlineProcess(recording, localPath, filename, title) {
   }
 }
 
+// ────────────────────────────────────────────────────────
+// PROCESSING MODE SELECTION  (step 6 of billing rebuild)
+// TODO: extract to routes/processing.js in the next refactor pass.
+// ────────────────────────────────────────────────────────
+
+// POST /api/recordings/:id/process { mode: 'normal' | 'premium' }
+// Enqueues a fresh processing job for this recording. Used after blocked_by_quota
+// (user topped up), a failure, or explicit reprocess from a different mode.
+app.post("/api/recordings/:id/process", auth, async (req, res) => {
+  const { mode } = req.body || {};
+  if (!["normal", "premium"].includes(mode)) {
+    return res.status(400).json({ error: "mode must be 'normal' or 'premium'" });
+  }
+
+  const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!recording) return res.status(404).json({ error: "Not found" });
+
+  const activeJob = await models.ProcessingJob.findOne({
+    recordingId: recording._id,
+    status:      { $in: ["reserved", "processing"] },
+  });
+  if (activeJob) {
+    return res.status(409).json({ error: "Recording is already being processed", jobId: activeJob._id });
+  }
+
+  try {
+    const { jobId, minutes } = await orchestrator.enqueue({
+      recording,
+      userId:       req.user._id,
+      mode,
+      audioPath:    null,
+      audioSeconds: recording.duration || 0,
+    });
+    res.json({ status: "ok", jobId, mode, minutesReserved: minutes });
+  } catch (err) {
+    if (err.code === "INSUFFICIENT_FUNDS") {
+      return res.status(402).json({
+        error:     "Insufficient AI Minutes",
+        wallet:    err.walletType,
+        requested: err.requested,
+        available: err.available,
+      });
+    }
+    console.error("❌ /api/recordings/:id/process:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/recordings/:id/estimate — for the mode-selection UI
+app.get("/api/recordings/:id/estimate", auth, async (req, res) => {
+  const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id }).lean();
+  if (!recording) return res.status(404).json({ error: "Not found" });
+
+  const minutes  = orchestrator.billableMinutes(recording.duration || 0);
+  const balances = await wallet.getBalance(req.user._id);
+  res.json({
+    durationSeconds:   recording.duration || 0,
+    normalMinutes:     minutes,
+    premiumMinutes:    minutes,
+    sufficientNormal:  balances.normalMinutesBalance  >= minutes,
+    sufficientPremium: balances.premiumMinutesBalance >= minutes,
+    balances,
+  });
+});
+
+// GET /api/recordings/:id/job/status — polling endpoint until WS is wired
+app.get("/api/recordings/:id/job/status", auth, async (req, res) => {
+  const recording = await Recording.findOne({ _id: req.params.id, userId: req.user._id }).lean();
+  if (!recording) return res.status(404).json({ error: "Not found" });
+  const job = recording.processingJobId
+    ? await models.ProcessingJob.findById(recording.processingJobId).lean()
+    : null;
+  res.json({
+    recordingId:      recording._id,
+    processingStatus: recording.processingStatus,
+    processingMode:   recording.processingMode,
+    blockedReason:    recording.blockedReason,
+    job: job ? {
+      status:      job.status,
+      attempts:    job.attempts,
+      lastError:   job.lastError,
+      startedAt:   job.startedAt,
+      completedAt: job.completedAt,
+    } : null,
+  });
+});
+
 // ── POST /recordings/:id/analyse ─────────────────────────
 app.post("/recordings/:id/analyse", auth, async (req, res) => {
   try {
