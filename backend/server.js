@@ -803,16 +803,18 @@ app.post("/save", auth, upload.single("audio"), async (req, res) => {
   // while we wait for R2 upload + MongoDB save
   res.json({ status: "ok" });
 
-  // Fire-and-forget trial activation for first-ever upload from this device.
-  const apiKey = req.headers["x-api-key"];
-  if (apiKey && req.user?._id) {
-    trial.activateDeviceTrial({ apiKey, userId: req.user._id })
-      .then(r => { if (r.activated) console.log(`🎁 Trial activated on first upload (user=${req.user.username})`); })
-      .catch(err => console.error("❌ Trial activation:", err.message));
-  }
-
   // Background processing — client already got 200, ESP32 won't wait
   try {
+    // Await trial activation before reserving wallet minutes so first-ever
+    // upload doesn't race the credit and end up blocked_by_quota.
+    const apiKey = req.headers["x-api-key"];
+    if (apiKey && req.user?._id) {
+      try {
+        const r = await trial.activateDeviceTrial({ apiKey, userId: req.user._id });
+        if (r.activated) console.log(`🎁 Trial activated on first upload (user=${req.user.username})`);
+      } catch (err) { console.error("❌ Trial activation:", err.message); }
+    }
+
     const fileUrl = await uploadToR2(localPath, filename, getContentType(filename));
     console.log(`☁️  Uploaded to R2: ${filename}`);
 
