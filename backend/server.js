@@ -12,6 +12,8 @@ const passport       = require("passport");
 const OpenAI         = require("openai");
 const Anthropic      = require("@anthropic-ai/sdk");
 const path           = require("path");
+const models         = require("./models");
+const { User, Recording, Project } = models;
 const fs             = require("fs");
 const os             = require("os");
 const { S3Client, GetObjectCommand, DeleteObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
@@ -98,51 +100,12 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error("❌ MongoDB:", err));
 
 // ── Models ────────────────────────────────────────────────
-const UserSchema = new mongoose.Schema({
-  username:     { type: String, unique: true, required: true },
-  name:         { type: String, default: "" },
-  email:        { type: String, default: "" },
-  passwordHash: { type: String, default: null },   // null for OAuth users
-  provider:     { type: String, default: "local" }, // local | google | github
-  providerId:   { type: String, default: null },
-  avatar:       { type: String, default: "" },
-  apiKey:       { type: String, default: () => crypto.randomBytes(32).toString("hex") },
-  createdAt:    { type: Date, default: Date.now },
-  lastLogin:    { type: Date },
-});
-const User = mongoose.model("User", UserSchema);
+// User, Recording, Project imported at the top from ./models. All eleven new
+// schemas (SubscriptionPlan, CreditWallet, UsageLedger, etc.) are also
+// registered by that require; use `models.<Name>` where needed.
 
-// ── Init Passport strategies (after User model is defined) ─
+// Init Passport strategies (after User model is available)
 require("./config/passport")(User);
-
-const Recording = mongoose.model("Recording", {
-  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  filename:    String,
-  fileUrl:     String,
-  transcript:  String,
-  title:       String,
-  summary:     String,
-  tags:        [String],
-  actionItems: [String],
-  duration:    Number,
-  createdAt:   { type: Date, default: Date.now },
-});
-
-const Project = mongoose.model("Project", {
-  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  name:        String,
-  emoji:       { type: String, default: "📁" },
-  color:       { type: String, default: "#f59e0b" },
-  description: { type: String, default: "" },
-  tasks: [{
-    text:        String,
-    done:        { type: Boolean, default: false },
-    dueDate:     Date,
-    recordingId: String,
-    createdAt:   { type: Date, default: Date.now },
-  }],
-  createdAt: { type: Date, default: Date.now },
-});
 
 // ── Multer ────────────────────────────────────────────────
 const upload = multer({
