@@ -6,7 +6,7 @@
   "scripts": {
     "build": "cd ../frontend && npm install && npm run build",
     "start": "node server.js",
-    "seed":  "node scripts/seed.js"
+    "seed": "node scripts/seed.js"
   },
   "keywords": [],
   "author": "",
@@ -29,10 +29,12 @@
     "mongodb": "^7.1.1",
     "mongoose": "^9.4.1",
     "multer": "^2.1.1",
+    "node-cron": "^3.0.3",
     "openai": "^6.34.0",
     "passport": "^0.7.0",
     "passport-github2": "^0.1.12",
     "passport-google-oauth20": "^2.0.0",
+    "razorpay": "^2.9.5",
     "ws": "^8.20.0"
   }
 }

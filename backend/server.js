@@ -497,6 +497,102 @@ app.get("/api/wallets", auth, async (req, res) => {
   }
 });
 
+// ────────────────────────────────────────────────────────
+// SUBSCRIPTIONS + WEBHOOK  (steps 13/15 — Razorpay + cron)
+// ────────────────────────────────────────────────────────
+const subscriptions   = require("./services/billing/subscriptions");
+const razorpayService = require("./services/billing/razorpay");
+
+// GET /api/plans — public. Frontend Plans page reads this.
+app.get("/api/plans", async (_req, res) => {
+  try {
+    const plans = await models.SubscriptionPlan.find({ active: true })
+      .sort({ displayOrder: 1 })
+      .select("code name description priceInr cadence normalMinutesGranted premiumMinutesGranted displayOrder")
+      .lean();
+    res.json({ plans });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/subscriptions { planCode } — kicks off a Razorpay subscription.
+app.post("/api/subscriptions", auth, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  const { planCode } = req.body || {};
+  if (!planCode) return res.status(400).json({ error: "planCode required" });
+  try {
+    const { subscription, razorpay: rz } = await subscriptions.createSubscriptionForUser({
+      user:     req.user,
+      planCode,
+    });
+    res.json({
+      subscriptionId: subscription._id,
+      razorpaySubId:  rz.id,
+      shortUrl:       rz.short_url,          // Razorpay-hosted checkout link
+      status:         rz.status,
+    });
+  } catch (err) {
+    console.error("❌ /api/subscriptions:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/subscriptions/:id/cancel — cancel at period end.
+app.post("/api/subscriptions/:id/cancel", auth, async (req, res) => {
+  try {
+    const sub = await subscriptions.cancelSubscriptionForUser({
+      user:           req.user,
+      subscriptionId: req.params.id,
+    });
+    res.json({ status: "ok", subscription: sub });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/subscriptions/me — the user's current + past subscriptions.
+app.get("/api/subscriptions/me", auth, async (req, res) => {
+  try {
+    const subs = await models.Subscription.find({ userId: req.user._id })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ subscriptions: subs });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /webhooks/razorpay — signature-verified, idempotent.
+// Mounts express.raw only for this path so signature verification has the
+// exact bytes Razorpay sent, not what JSON.parse+stringify would produce.
+app.post("/webhooks/razorpay",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  async (req, res) => {
+    const signature = req.header("x-razorpay-signature");
+    let ok = false;
+    try { ok = razorpayService.verifyWebhookSignature(req.body, signature); }
+    catch (err) {
+      console.error("❌ Webhook signature check:", err.message);
+      return res.status(500).json({ error: "signature check failed" });
+    }
+    if (!ok) return res.status(400).json({ error: "invalid signature" });
+
+    let payload;
+    try { payload = JSON.parse(req.body.toString("utf8")); }
+    catch (err) { return res.status(400).json({ error: "invalid json" }); }
+
+    const eventId = payload?.id || payload?.event_id || `${payload?.event}_${Date.now()}`;
+    const type    = payload?.event || "unknown";
+
+    // Ack fast — Razorpay retries on non-200 and we've already persisted the
+    // raw event via applyWebhookEvent's dedupe insert.
+    res.json({ ok: true });
+
+    try {
+      await subscriptions.applyWebhookEvent({ eventId, type, payload });
+    } catch (err) {
+      console.error(`❌ Webhook apply ${type} (${eventId}):`, err.message);
+    }
+  }
+);
+
 // GET /api/usage/ledger?limit=&before=
 app.get("/api/usage/ledger", auth, async (req, res) => {
   if (!req.user) return res.status(404).json({ error: "User not found" });
@@ -1330,4 +1426,7 @@ function broadcast(data) {
 
 // Give ESP32 uploads up to 90s to process; prevents silent hangs on Render cold-starts
 server.timeout = 3600000; // 60 min for large file processing
+// Cron for trial + weekly credit expiry (steps 13/15).
+require("./jobs/expireCredits").start();
+
 server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
