@@ -47,4 +47,9 @@ async function presignPut(key, contentType) {
   return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
 
-module.exports = { s3, BUCKET, R2_PUB, uploadToR2, downloadFromR2, deleteFromR2, presignPut };
+async function presignGet(key, expiresIn = 3600) {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  return getSignedUrl(s3, command, { expiresIn });
+}
+
+module.exports = { s3, BUCKET, R2_PUB, uploadToR2, downloadFromR2, deleteFromR2, presignPut, presignGet };
