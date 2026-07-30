@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { AiMinutesPill, ProcessingStateBanner, PlansPage, UsagePage } from "./billing";
 
 const API = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:5000");
 
@@ -812,6 +813,26 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing,
         {/* Content */}
         <div style={{ flex:1, overflowY: tab === "ai" ? "hidden" : "auto", padding:20, display:"flex", flexDirection:"column", minHeight:0 }}>
 
+          {/* Processing-state takeover — mode selector when un-processed / blocked-by-quota / mid-job */}
+          {(rec.processingStatus === "blocked_by_quota" ||
+            rec.processingStatus === "failed" ||
+            rec.processingStatus === "reserved" ||
+            rec.processingStatus === "processing" ||
+            (rec.processingStatus === "pending" && !rec.transcript)) && (
+            <ProcessingStateBanner
+              rec={rec}
+              onProcessed={() => window.location.reload()}
+              onGoToPlans={() => { onClose(); setTimeout(() => { window.location.hash = "plans"; window.location.reload(); }, 50); }}
+            />
+          )}
+
+          {/* Regular tab content — hidden while the takeover is active */}
+          {!(rec.processingStatus === "blocked_by_quota" ||
+             rec.processingStatus === "failed" ||
+             rec.processingStatus === "reserved" ||
+             rec.processingStatus === "processing" ||
+             (rec.processingStatus === "pending" && !rec.transcript)) && <>
+
           {/* ── LISTEN ── */}
           {tab==="listen" && (
             <div style={{ animation:"fadeUp 0.25s ease" }}>
@@ -1030,6 +1051,7 @@ function DetailPanel({ rec, recIndex, initialTab, onClose, onAnalyse, analysing,
               ))}
             </div>
           )}
+          </>}
         </div>
       </div>
 
@@ -2454,6 +2476,19 @@ export default function App() {
                 }}/>
                 {deviceRecording ? "Recording" : "Idle"}
               </div>
+            <AiMinutesPill onClick={()=>setCurrentPage("usage")} refreshKey={currentPage} />
+            <button onClick={()=>setCurrentPage("plans")} style={{
+              background: currentPage === "plans" ? "rgba(245,158,11,0.1)" : "none",
+              border: `1px solid ${currentPage === "plans" ? "rgba(245,158,11,0.4)" : "#27272a"}`,
+              borderRadius:8, padding:"5px 12px", fontSize:12,
+              color: currentPage === "plans" ? "#f59e0b" : "#71717a",
+              cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:600,
+              display:"flex", alignItems:"center", gap:5, transition:"all 0.15s",
+            }}
+            onMouseEnter={e=>{ if(currentPage!=="plans"){ e.currentTarget.style.borderColor="#f59e0b"; e.currentTarget.style.color="#f59e0b"; }}}
+            onMouseLeave={e=>{ if(currentPage!=="plans"){ e.currentTarget.style.borderColor="#27272a"; e.currentTarget.style.color="#71717a"; }}}>
+              Plans
+            </button>
             <button onClick={() => setCurrentPage(p => p === "projects" ? "home" : "projects")} style={{
               background: currentPage === "projects" ? "rgba(245,158,11,0.1)" : "none",
               border: `1px solid ${currentPage === "projects" ? "rgba(245,158,11,0.4)" : "#27272a"}`,
@@ -2503,7 +2538,17 @@ export default function App() {
             onBack={()=>setCurrentPage("home")}/>
         )}
 
-        {currentPage !== "projects" && <>
+        {/* PLANS PAGE */}
+        {currentPage === "plans" && (
+          <PlansPage onBack={()=>setCurrentPage("home")}/>
+        )}
+
+        {/* USAGE PAGE */}
+        {currentPage === "usage" && (
+          <UsagePage onBack={()=>setCurrentPage("home")} onGoToPlans={()=>setCurrentPage("plans")}/>
+        )}
+
+        {currentPage === "home" && <>
         <div className="home-grid">
         <div className="home-left">
 
